@@ -346,7 +346,7 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
     #     uc = None
     uc_cross = model.get_unconditional_conditioning(1, DEFAULT_NEGATIVE_PROMPT)
     uc_full = {"c_concat": [c_cat], "c_crossattn": [uc_cross]}
-    # c, uc = fix_cond_shapes(model, c, uc)
+    c, uc = fix_cond_shapes(model, c, uc)
 
     if not hasattr(opt, 'H'):
         opt.H = 512
