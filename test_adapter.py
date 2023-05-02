@@ -73,7 +73,7 @@ def main():
                 adapter_features, append_to_context = get_adapter_feature(cond, adapter)
                 opt.prompt = prompt
                 result = diffusion_inference(opt, sd_model, sampler, adapter_features, append_to_context)
-                cv2.imwrite(os.path.join(opt.outdir, f'{base_count:05}_result.png'), tensor2img(result))
+                finish = result.save("/cluster/work/cvl/denfan/diandian/control/T2I-Inpainting/result.png")
 
 
 if __name__ == '__main__':
