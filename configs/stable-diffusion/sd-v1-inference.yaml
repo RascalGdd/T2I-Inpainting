@@ -1,6 +1,6 @@
 model:
-  base_learning_rate: 1.0e-04
-  target: ldm.models.diffusion.ddpm.LatentDiffusion
+  base_learning_rate: 7.5e-05
+  target: ldm.models.diffusion.ddpm.LatentInpaintDiffusion
   params:
     linear_start: 0.00085
     linear_end: 0.0120
@@ -12,17 +12,17 @@ model:
     image_size: 64
     channels: 4
     cond_stage_trainable: false   # Note: different from the one we trained before
-    conditioning_key: crossattn
+    conditioning_key: hybrid   # important
     monitor: val/loss_simple_ema
     scale_factor: 0.18215
-    use_ema: False
+    finetune_keys: null
 
     unet_config:
       target: ldm.modules.diffusionmodules.openaimodel.UNetModel
       params:
         use_fp16: True
         image_size: 32 # unused
-        in_channels: 4
+        in_channels: 9
         out_channels: 4
         model_channels: 320
         attention_resolutions: [ 4, 2, 1 ]

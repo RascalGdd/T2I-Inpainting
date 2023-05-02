@@ -1,16 +1,67 @@
 import argparse
 import torch
 from omegaconf import OmegaConf
-
+from transformers import AutoFeatureExtractor
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
 from ldm.modules.encoders.adapter import Adapter, StyleAdapter, Adapter_light
 from ldm.modules.extra_condition.api import ExtraCondition
 from ldm.util import fix_cond_shapes, load_model_from_config, read_state_dict
-
+from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
 DEFAULT_NEGATIVE_PROMPT = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, ' \
                           'fewer digits, cropped, worst quality, low quality'
+import PIL.Image as Image
+import numpy as np
+from einops import repeat
 
+
+safety_model_id = "CompVis/stable-diffusion-safety-checker"
+safety_feature_extractor = AutoFeatureExtractor.from_pretrained(safety_model_id)
+safety_checker = StableDiffusionSafetyChecker.from_pretrained(safety_model_id)
+
+def numpy_to_pil(images):
+    """
+    Convert a numpy image or a batch of images to a PIL image.
+    """
+    if images.ndim == 3:
+        images = images[None, ...]
+    images = (images * 255).round().astype("uint8")
+    pil_images = [Image.fromarray(image) for image in images]
+
+    return pil_images
+
+def check_safety(x_image):
+    safety_checker_input = safety_feature_extractor(numpy_to_pil(x_image), return_tensors="pt")
+    x_checked_image, has_nsfw_concept = safety_checker(images=x_image, clip_input=safety_checker_input.pixel_values)
+    assert x_checked_image.shape[0] == len(has_nsfw_concept)
+    return x_checked_image, has_nsfw_concept
+
+def make_batch_sd(
+        image,
+        mask,
+        txt,
+        device,
+        num_samples=1):
+    image = np.array(image.convert("RGB"))
+    image = image[None].transpose(0,3,1,2)
+    image = torch.from_numpy(image).to(dtype=torch.float32)/127.5-1.0
+
+    mask = np.array(mask.convert("L"))
+    mask = mask.astype(np.float32)/255.0
+    mask = mask[None,None]
+    mask[mask < 0.5] = 0
+    mask[mask >= 0.5] = 1
+    mask = torch.from_numpy(mask)
+
+    masked_image = image * (mask < 0.5)
+
+    batch = {
+            "image": repeat(image.to(device=device), "1 ... -> n ...", n=num_samples),
+            "txt": num_samples * [txt],
+            "mask": repeat(mask.to(device=device), "1 ... -> n ...", n=num_samples),
+            "masked_image": repeat(masked_image.to(device=device), "1 ... -> n ...", n=num_samples),
+            }
+    return batch
 
 def get_base_argument_parser() -> argparse.ArgumentParser:
     """get the base argument parser for inference scripts"""
@@ -266,13 +317,37 @@ def get_adapters(opt, cond_type: ExtraCondition):
 
 
 def diffusion_inference(opt, model, sampler, adapter_features, append_to_context=None):
+    path_img = r"/cluster/work/cvl/denfan/diandian/control/T2I-Inpainting/test_images/COD10K-CAM-1-Aquatic-1-BatFish-1.jpg"
+    path_mask = r"/cluster/work/cvl/denfan/diandian/control/T2I-Inpainting/test_images/COD10K-CAM-1-Aquatic-1-BatFish-1.png"
+    img = Image.open(path_img).convert("RGB").resize([512, 512])
+    mask = Image.open(path_mask).resize([512, 512])
+    # print(mask.size)
+    txt = "a fish"
+    batch = make_batch_sd(img, mask, txt, "cuda")
+
     # get text embedding
-    c = model.get_learned_conditioning([opt.prompt])
-    if opt.scale != 1.0:
-        uc = model.get_learned_conditioning([opt.neg_prompt])
-    else:
-        uc = None
-    c, uc = fix_cond_shapes(model, c, uc)
+    # c = model.get_learned_conditioning([opt.prompt])
+    c = model.cond_stage_model.encode(batch["txt"])
+
+    c_cat = list()
+    for ck in model.concat_keys:
+        cc = batch[ck].float()
+        if ck != model.masked_image_key:
+            bchw = [1, 4, 64, 64]
+            cc = torch.nn.functional.interpolate(cc, size=bchw[-2:])
+        else:
+            cc = model.get_first_stage_encoding(model.encode_first_stage(cc))
+        c_cat.append(cc)
+    c_cat = torch.cat(c_cat, dim=1)
+    cond = {"c_concat": [c_cat], "c_crossattn": [c]}
+
+    # if opt.scale != 1.0:
+    #     uc = model.get_learned_conditioning([opt.neg_prompt])
+    # else:
+    #     uc = None
+    uc_cross = model.get_unconditional_conditioning(1, "")
+    uc_full = {"c_concat": [c_cat], "c_crossattn": [uc_cross]}
+    # c, uc = fix_cond_shapes(model, c, uc)
 
     if not hasattr(opt, 'H'):
         opt.H = 512
@@ -286,7 +361,7 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
         shape=shape,
         verbose=False,
         unconditional_guidance_scale=opt.scale,
-        unconditional_conditioning=uc,
+        unconditional_conditioning=uc_full,
         x_T=None,
         features_adapter=adapter_features,
         append_to_context=append_to_context,
@@ -297,4 +372,10 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
     x_samples = model.decode_first_stage(samples_latents)
     x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
 
-    return x_samples
+    result = x_samples.cpu().numpy().transpose(0,2,3,1)
+    result, has_nsfw_concept = check_safety(result)
+    result = result*255
+
+    result = [Image.fromarray(img.astype(np.uint8)) for img in result]
+
+    return result
