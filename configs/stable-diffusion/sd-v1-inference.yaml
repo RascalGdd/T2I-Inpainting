@@ -59,7 +59,7 @@ model:
           target: torch.nn.Identity
 
     cond_stage_config:
-      target: ldm.modules.encoders.modules.FrozenOpenCLIPEmbedder
+      target: ldm.modules.encoders.modules.WebUIFrozenCLIPEmebedder
       params:
-        freeze: True
-        layer: "penultimate"
+        version: openai/clip-vit-large-patch14
+        layer: last

@@ -267,12 +267,12 @@ def get_adapters(opt, cond_type: ExtraCondition):
     return adapter
 
 def make_batch(image, mask, device="cuda"):
-    image = np.array(Image.open(image).convert("RGB").resize([512, 512]))
+    image = np.array(Image.open(image).convert("RGB").resize([768, 512]))
     image = image.astype(np.float32)/255.0
     image = image[None].transpose(0,3,1,2)
     image = torch.from_numpy(image)
 
-    mask = np.array(Image.open(mask).convert("L").resize([512, 512]))
+    mask = np.array(Image.open(mask).convert("L").resize([768, 512]))
     mask = mask.astype(np.float32)/255.0
     mask = mask[None,None]
     mask[mask < 0.5] = 0
@@ -295,15 +295,17 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
         uc = model.get_learned_conditioning([opt.neg_prompt])
     else:
         uc = None
+
     batch = make_batch(
         image=r"C:\Users\guodi\Desktop\camouflaged_dataset\camo_diff\camo_target\COD10K-CAM-1-Aquatic-1-BatFish-8.jpg",
         mask=r"C:\Users\guodi\Desktop\camouflaged_dataset\camo_diff\camo_mask\COD10K-CAM-1-Aquatic-1-BatFish-8.png")
 
     print(batch["masked_image"].shape)
-    mask_source = model.encode_first_stage(batch["masked_image"].float())
+    mask_source = model.get_first_stage_encoding(model.encode_first_stage(batch["masked_image"].float()))
+    print(mask_source.shape)
     # mask_source = model.get_learned_conditioning(batch["masked_image"])
     mask_binary = torch.nn.functional.interpolate(batch["mask"],
-                                         size=mask_source.shape[-2:])
+                                         size=[64, 96])
     mask = torch.cat((mask_source, mask_binary), dim=1)
 
     c, uc = fix_cond_shapes(model, c, uc)
@@ -313,10 +315,9 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
     if not hasattr(opt, 'H'):
         opt.H = 512
         opt.W = 512
+
     shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
-    # print(shape)
-    # print(c.shape)
-    # asd
+
 
     samples_latents, _ = sampler.sample(
         S=opt.steps,
