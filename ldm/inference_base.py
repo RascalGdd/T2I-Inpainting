@@ -321,9 +321,8 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
     path_mask = r"/cluster/work/cvl/denfan/diandian/control/T2I-Inpainting/test_images/COD10K-CAM-1-Aquatic-1-BatFish-1.png"
     img = Image.open(path_img).convert("RGB").resize([512, 512])
     mask = Image.open(path_mask).resize([512, 512])
-    # print(mask.size)
-    txt = "a fish"
-    batch = make_batch_sd(img, mask, txt, "cuda")
+    batch = make_batch_sd(img, mask, opt.prompt, "cuda")
+    print("prompt is ", opt.prompt)
 
     # get text embedding
     # c = model.get_learned_conditioning([opt.prompt])
