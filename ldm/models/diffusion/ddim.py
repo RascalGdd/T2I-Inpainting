@@ -199,7 +199,7 @@ class DDIMSampler(object):
                         c_in[k] = [torch.cat([
                             unconditional_conditioning[k][i],
                             c[k][i]]) for i in range(len(c[k]))]
-                    else:
+                    elif k == "c_crossattn":
                         c_in[k] = torch.cat([
                             unconditional_conditioning[k],
                             c[k]])

@@ -12,7 +12,7 @@ model:
     image_size: 64
     channels: 4
     cond_stage_trainable: false   # Note: different from the one we trained before
-    conditioning_key: crossattn
+    conditioning_key: hybrid
     monitor: val/loss_simple_ema
     scale_factor: 0.18215
     use_ema: False
@@ -22,7 +22,7 @@ model:
       params:
         use_fp16: True
         image_size: 32 # unused
-        in_channels: 4
+        in_channels: 9
         out_channels: 4
         model_channels: 320
         attention_resolutions: [ 4, 2, 1 ]
@@ -59,7 +59,7 @@ model:
           target: torch.nn.Identity
 
     cond_stage_config:
-      target: ldm.modules.encoders.modules.WebUIFrozenCLIPEmebedder
+      target: ldm.modules.encoders.modules.FrozenOpenCLIPEmbedder
       params:
-        version: openai/clip-vit-large-patch14
-        layer: last
+        freeze: True
+        layer: "penultimate"

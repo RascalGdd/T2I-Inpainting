@@ -7,6 +7,8 @@ from ldm.models.diffusion.plms import PLMSSampler
 from ldm.modules.encoders.adapter import Adapter, StyleAdapter, Adapter_light
 from ldm.modules.extra_condition.api import ExtraCondition
 from ldm.util import fix_cond_shapes, load_model_from_config, read_state_dict
+import numpy as np
+import PIL.Image as Image
 
 DEFAULT_NEGATIVE_PROMPT = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, ' \
                           'fewer digits, cropped, worst quality, low quality'
@@ -264,20 +266,57 @@ def get_adapters(opt, cond_type: ExtraCondition):
 
     return adapter
 
+def make_batch(image, mask, device="cuda"):
+    image = np.array(Image.open(image).convert("RGB").resize([512, 512]))
+    image = image.astype(np.float32)/255.0
+    image = image[None].transpose(0,3,1,2)
+    image = torch.from_numpy(image)
+
+    mask = np.array(Image.open(mask).convert("L").resize([512, 512]))
+    mask = mask.astype(np.float32)/255.0
+    mask = mask[None,None]
+    mask[mask < 0.5] = 0
+    mask[mask >= 0.5] = 1
+    mask = torch.from_numpy(mask)
+
+    masked_image = (1-mask)*image
+
+    batch = {"image": image, "mask": mask, "masked_image": masked_image}
+    for k in batch:
+        batch[k] = batch[k].to(device=device)
+        batch[k] = batch[k]*2.0-1.0
+    return batch
 
 def diffusion_inference(opt, model, sampler, adapter_features, append_to_context=None):
     # get text embedding
     c = model.get_learned_conditioning([opt.prompt])
+    # print(c.shape)
     if opt.scale != 1.0:
         uc = model.get_learned_conditioning([opt.neg_prompt])
     else:
         uc = None
+    batch = make_batch(
+        image=r"C:\Users\guodi\Desktop\camouflaged_dataset\camo_diff\camo_target\COD10K-CAM-1-Aquatic-1-BatFish-8.jpg",
+        mask=r"C:\Users\guodi\Desktop\camouflaged_dataset\camo_diff\camo_mask\COD10K-CAM-1-Aquatic-1-BatFish-8.png")
+
+    print(batch["masked_image"].shape)
+    mask_source = model.encode_first_stage(batch["masked_image"].float())
+    # mask_source = model.get_learned_conditioning(batch["masked_image"])
+    mask_binary = torch.nn.functional.interpolate(batch["mask"],
+                                         size=mask_source.shape[-2:])
+    mask = torch.cat((mask_source, mask_binary), dim=1)
+
     c, uc = fix_cond_shapes(model, c, uc)
+    c = {'c_crossattn': [c], "c_concat": [mask]}
+    uc = {'c_crossattn': [uc], "c_concat": [mask]}
 
     if not hasattr(opt, 'H'):
         opt.H = 512
         opt.W = 512
     shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
+    # print(shape)
+    # print(c.shape)
+    # asd
 
     samples_latents, _ = sampler.sample(
         S=opt.steps,
