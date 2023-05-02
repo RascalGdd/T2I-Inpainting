@@ -355,7 +355,7 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
 
     samples_latents, _ = sampler.sample(
         S=opt.steps,
-        conditioning=c,
+        conditioning=cond,
         batch_size=1,
         shape=shape,
         verbose=False,
