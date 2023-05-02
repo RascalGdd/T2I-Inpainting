@@ -344,7 +344,7 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
     #     uc = model.get_learned_conditioning([opt.neg_prompt])
     # else:
     #     uc = None
-    uc_cross = model.get_unconditional_conditioning(1, "")
+    uc_cross = model.get_unconditional_conditioning(1, DEFAULT_NEGATIVE_PROMPT)
     uc_full = {"c_concat": [c_cat], "c_crossattn": [uc_cross]}
     # c, uc = fix_cond_shapes(model, c, uc)
 
