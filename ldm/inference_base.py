@@ -8,8 +8,7 @@ from ldm.modules.encoders.adapter import Adapter, StyleAdapter, Adapter_light
 from ldm.modules.extra_condition.api import ExtraCondition
 from ldm.util import fix_cond_shapes, load_model_from_config, read_state_dict
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
-DEFAULT_NEGATIVE_PROMPT = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, ' \
-                          'fewer digits, cropped, worst quality, low quality'
+DEFAULT_NEGATIVE_PROMPT = 'l'
 import PIL.Image as Image
 import numpy as np
 from einops import repeat
