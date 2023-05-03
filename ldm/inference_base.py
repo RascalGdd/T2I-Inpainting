@@ -371,7 +371,7 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
     x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
 
     result = x_samples.cpu().numpy().transpose(0,2,3,1)
-    result, has_nsfw_concept = check_safety(result)
+#    result, has_nsfw_concept = check_safety(result)
     result = result*255
 
     result = [Image.fromarray(img.astype(np.uint8)) for img in result]
