@@ -11,7 +11,15 @@ from ldm.modules.extra_condition import api
 from ldm.modules.extra_condition.api import (ExtraCondition, get_adapter_feature, get_cond_model)
 
 torch.set_grad_enabled(False)
-
+def blip_color(raw_img):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model, vis_processors, txt_processors = load_model_and_preprocess(name="blip_vqa", model_type="vqav2", is_eval=True,
+                                                                      device=device)
+    question = "The background color is {}"
+    image = vis_processors["eval"](raw_img).unsqueeze(0).to(device)
+    question = txt_processors["eval"](question)
+    prompt = model.predict_answers(samples={"image": image, "text_input": question}, inference_method="generate")
+    return prompt[0]
 
 def main():
     supported_cond = [e.name for e in ExtraCondition]
@@ -24,6 +32,16 @@ def main():
         help='which condition modality you want to test',
     )
     opt = parser.parse_args()
+    
+    ### add blip ###
+    raw_img = Image.open(opt.cond_path)
+    color = blip_color(raw_img)
+    parts = opt.prompt.split()
+    opt.prompt = parts[0] + ' ' + color + ' ' + parts[1]
+    opt.prompt = opt.prompt+', best quality, photorealistic and realistic'
+    print(opt.prompt)
+    ###
+
     which_cond = opt.which_cond
     if opt.outdir is None:
         opt.outdir = f'outputs/test-{which_cond}'
@@ -73,7 +91,8 @@ def main():
                 adapter_features, append_to_context = get_adapter_feature(cond, adapter)
                 opt.prompt = prompt
                 result = diffusion_inference(opt, sd_model, sampler, adapter_features, append_to_context)
-                finish = result.save("/cluster/work/cvl/denfan/diandian/control/T2I-Inpainting/result.png")
+                output_name = os.path.basename(opt.path_img)
+                result.save(os.path.join(opt.outdir, output_name))
 
 
 if __name__ == '__main__':
