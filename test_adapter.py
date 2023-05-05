@@ -2,6 +2,7 @@ import os
 
 import cv2
 import torch
+from PIL import Image
 from basicsr.utils import tensor2img
 from pytorch_lightning import seed_everything
 from torch import autocast
@@ -32,7 +33,6 @@ def main():
         help='which condition modality you want to test',
     )
     opt = parser.parse_args()
-    
     ### add blip ###
     raw_img = Image.open(opt.cond_path)
     color = blip_color(raw_img)
@@ -64,7 +64,7 @@ def main():
     else:
         image_paths = [opt.cond_path]
         prompts = [opt.prompt]
-    print(image_paths)
+
 
     # prepare models
     sd_model, sampler = get_sd_models(opt)
@@ -82,16 +82,14 @@ def main():
         for test_idx, (cond_path, prompt) in enumerate(zip(image_paths, prompts)):
             seed_everything(opt.seed)
             for v_idx in range(opt.n_samples):
-                # seed_everything(opt.seed+v_idx+test_idx)
-                cond = process_cond_module(opt, cond_path, opt.cond_inp_type, cond_model)
-
-                base_count = len(os.listdir(opt.outdir)) // 2
-                cv2.imwrite(os.path.join(opt.outdir, f'{base_count:05}_{which_cond}.png'), tensor2img(cond))
-
-                adapter_features, append_to_context = get_adapter_feature(cond, adapter)
-                opt.prompt = prompt
-                result = diffusion_inference(opt, sd_model, sampler, adapter_features, append_to_context)
+                # colormap
                 output_name = os.path.basename(opt.path_img)
+                cond = process_cond_module(opt, cond_path, opt.cond_inp_type, cond_model)
+                cv2.imwrite(os.path.join(opt.outdir, 'color',output_name.replace('jpg','png')), tensor2img(cond))
+
+                # result
+                adapter_features, append_to_context = get_adapter_feature(cond, adapter)
+                result = diffusion_inference(opt, sd_model, sampler, adapter_features, append_to_context)
                 result.save(os.path.join(opt.outdir, output_name))
 
 
