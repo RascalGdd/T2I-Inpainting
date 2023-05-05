@@ -8,7 +8,8 @@ from ldm.modules.encoders.adapter import Adapter, StyleAdapter, Adapter_light
 from ldm.modules.extra_condition.api import ExtraCondition
 from ldm.util import fix_cond_shapes, load_model_from_config, read_state_dict
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
-DEFAULT_NEGATIVE_PROMPT = 'l'
+DEFAULT_NEGATIVE_PROMPT = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, ' \
+                          'fewer digits, cropped, worst quality, low quality'
 import PIL.Image as Image
 import numpy as np
 from einops import repeat
@@ -61,6 +62,7 @@ def make_batch_sd(
             "masked_image": repeat(masked_image.to(device=device), "1 ... -> n ...", n=num_samples),
             }
     return batch
+
 
 def get_base_argument_parser() -> argparse.ArgumentParser:
     """get the base argument parser for inference scripts"""
@@ -216,7 +218,21 @@ def get_base_argument_parser() -> argparse.ArgumentParser:
         default=4,
         help='# of samples to generate',
     )
-
+    parser.add_argument(
+        '--path_img',
+        type=str,
+        default='test_images/COD10K-CAM-1-Aquatic-1-BatFish-1.jpg',
+        help='load image',
+    )
+    parser.add_argument(
+        '--path_mask',
+        type=str,
+        default='test_images/COD10K-CAM-1-Aquatic-1-BatFish-1.png',
+        help='load mask',
+    )
+    
+    
+    
     return parser
 
 
@@ -316,10 +332,8 @@ def get_adapters(opt, cond_type: ExtraCondition):
 
 
 def diffusion_inference(opt, model, sampler, adapter_features, append_to_context=None):
-    path_img = r"/cluster/work/cvl/denfan/diandian/control/T2I-Inpainting/test_images/COD10K-CAM-1-Aquatic-1-BatFish-1.jpg"
-    path_mask = r"/cluster/work/cvl/denfan/diandian/control/T2I-Inpainting/test_images/COD10K-CAM-1-Aquatic-1-BatFish-1.png"
-    img = Image.open(path_img).convert("RGB").resize([512, 512])
-    mask = Image.open(path_mask).resize([512, 512])
+    img = Image.open(opt.path_img).convert("RGB").resize([512, 512])
+    mask = Image.open(opt.path_mask).resize([512, 512])
     batch = make_batch_sd(img, mask, opt.prompt, "cuda")
     print("prompt is ", opt.prompt)
 
