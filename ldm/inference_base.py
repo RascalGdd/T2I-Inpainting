@@ -8,7 +8,8 @@ from ldm.modules.encoders.adapter import Adapter, StyleAdapter, Adapter_light
 from ldm.modules.extra_condition.api import ExtraCondition
 from ldm.util import fix_cond_shapes, load_model_from_config, read_state_dict
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
-DEFAULT_NEGATIVE_PROMPT = 'l'
+DEFAULT_NEGATIVE_PROMPT = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, ' \
+                          'fewer digits, cropped, worst quality, low quality'
 import PIL.Image as Image
 import numpy as np
 from einops import repeat
@@ -343,8 +344,13 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
     #     uc = model.get_learned_conditioning([opt.neg_prompt])
     # else:
     #     uc = None
-    uc_cross = model.get_unconditional_conditioning(1, DEFAULT_NEGATIVE_PROMPT)
+#     uc_cross = model.get_unconditional_conditioning(1, DEFAULT_NEGATIVE_PROMPT)
+    uc_cross = model.get_learned_conditioning([opt.neg_prompt])
     uc_full = {"c_concat": [c_cat], "c_crossattn": [uc_cross]}
+    c, uc_cross = fix_cond_shapes(model, c, uc_cross)
+    cond = {"c_concat": [c_cat], "c_crossattn": [c]}
+    uc_full = {"c_concat": [c_cat], "c_crossattn": [uc_cross]}
+    
     # c, uc = fix_cond_shapes(model, c, uc)
 
     if not hasattr(opt, 'H'):
