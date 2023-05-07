@@ -338,7 +338,7 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
             cc = model.get_first_stage_encoding(model.encode_first_stage(cc))
         c_cat.append(cc)
     c_cat = torch.cat(c_cat, dim=1)
-    cond = {"c_concat": [c_cat], "c_crossattn": [c]}
+#     cond = {"c_concat": [c_cat], "c_crossattn": [c]}
 
     # if opt.scale != 1.0:
     #     uc = model.get_learned_conditioning([opt.neg_prompt])
@@ -346,7 +346,7 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
     #     uc = None
 #     uc_cross = model.get_unconditional_conditioning(1, DEFAULT_NEGATIVE_PROMPT)
     uc_cross = model.get_learned_conditioning([opt.neg_prompt])
-    uc_full = {"c_concat": [c_cat], "c_crossattn": [uc_cross]}
+#     uc_full = {"c_concat": [c_cat], "c_crossattn": [uc_cross]}
     c, uc_cross = fix_cond_shapes(model, c, uc_cross)
     cond = {"c_concat": [c_cat], "c_crossattn": [c]}
     uc_full = {"c_concat": [c_cat], "c_crossattn": [uc_cross]}
