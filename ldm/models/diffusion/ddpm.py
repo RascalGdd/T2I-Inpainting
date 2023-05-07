@@ -1124,7 +1124,12 @@ class LatentDiffusion(DDPM):
             for i in range(len(c)):
                 c[i] = repeat(c[i], '1 ... -> b ...', b=batch_size).to(self.device)
         else:
+            c = c.unsqueeze(0)  # [10, 77, 768] to [1, 10, 77, 768]
+            c = c[:, :1, :, :]  # to [1, 1, 77, 768]
+            c = c.squeeze(1)
+            print(c.shape)
             c = repeat(c, '1 ... -> b ...', b=batch_size).to(self.device)
+           
         return c
 
     @torch.no_grad()

@@ -10,6 +10,8 @@ from ldm.util import fix_cond_shapes, load_model_from_config, read_state_dict
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
 DEFAULT_NEGATIVE_PROMPT = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, ' \
                           'fewer digits, cropped, worst quality, low quality'
+#DEFAULT_NEGATIVE_PROMPT = ['longbody', 'lowres', 'bad anatomy', 'bad hands', 'missing fingers', 'extra digit', 'fewer digits', 'cropped', 'worst quality', 'low quality']
+#DEFAULT_NEGATIVE_PROMPT = '1'
 import PIL.Image as Image
 import numpy as np
 from einops import repeat
@@ -358,6 +360,9 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
     # else:
     #     uc = None
     uc_cross = model.get_unconditional_conditioning(1, DEFAULT_NEGATIVE_PROMPT)
+    print('look!!!')
+    print(uc_cross.shape)
+
     uc_full = {"c_concat": [c_cat], "c_crossattn": [uc_cross]}
     # c, uc = fix_cond_shapes(model, c, uc)
 
