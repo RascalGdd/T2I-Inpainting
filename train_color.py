@@ -15,14 +15,14 @@ from basicsr.utils.options import copy_opt_file, dict2str
 from omegaconf import OmegaConf
 from PIL import Image
 
-from ldm.data.dataset_coco import dataset_coco_mask_color
+from ldm.data.dataset_coco import dataset_cod_mask_color
 from dist_util import get_bare_model, get_dist_info, init_dist, master_only
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.dpm_solver import DPMSolverSampler
 from ldm.models.diffusion.plms import PLMSSampler
 from ldm.modules.encoders.adapter import Adapter
 from ldm.util import instantiate_from_config
-from ldm.modules.structure_condition.model_edge import pidinet
+
 
 
 def load_model_from_config(config, ckpt, verbose=False):
@@ -224,17 +224,20 @@ if __name__ == '__main__':
     torch.cuda.set_device(opt.local_rank)
 
     # dataset
-    path_json_train = 'coco_stuff/mask/annotations/captions_train2017.json'
-    path_json_val = 'coco_stuff/mask/annotations/captions_val2017.json'
-    train_dataset = dataset_coco_mask_color(path_json_train,
-    root_path_im='coco/train2017',
-    root_path_mask='coco_stuff/mask/train2017_color',
+
+    # path_json_train = 'coco_stuff/mask/annotations/captions_train2017.json'
+    # path_json_val = 'coco_stuff/mask/annotations/captions_val2017.json'
+    path_json_train = '/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/testjson_dict.json'
+    path_json_val = '/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/testjson_dict.json'
+    train_dataset = dataset_cod_mask_color(path_json_train,
+    root_path_im='/cluster/scratch/denfan/inpainting_stable/background',
+    root_path_mask='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_mask',
     image_size=512
     )
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-    val_dataset = dataset_coco_mask_color(path_json_val,
-    root_path_im='coco/val2017',
-    root_path_mask='coco_stuff/mask/val2017_color',
+    val_dataset = dataset_cod_mask_color(path_json_val,
+    root_path_im='/cluster/scratch/denfan/inpainting_stable/background',
+    root_path_mask='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_mask',
     image_size=512
     )
     train_dataloader = torch.utils.data.DataLoader(
@@ -251,16 +254,10 @@ if __name__ == '__main__':
             num_workers=1,
             pin_memory=False)
 
-    # edge_generator
-    net_G = pidinet()
-    ckp = torch.load('models/table5_pidinet.pth', map_location='cpu')['state_dict']
-    net_G.load_state_dict({k.replace('module.',''):v for k, v in ckp.items()})
-    net_G.cuda()
-
     # stable diffusion
     model = load_model_from_config(config, f"{opt.ckpt}").to(device)
 
-    # sketch encoder
+    # ad encoder
     model_ad = Adapter(channels=[320, 640, 1280, 1280][:4], nums_rb=2, ksize=1, sk=True, use_conv=False).to(device)
 
     # to gpus
@@ -272,12 +269,9 @@ if __name__ == '__main__':
         model,
         device_ids=[opt.local_rank],
         output_device=opt.local_rank)
-        # device_ids=[torch.cuda.current_device()])
-    net_G = torch.nn.parallel.DistributedDataParallel(
-        net_G,
-        device_ids=[opt.local_rank],
-        output_device=opt.local_rank)
-        # device_ids=[torch.cuda.current_device()])
+
+
+
 
     # optimizer
     params = list(model_ad.parameters())
@@ -322,16 +316,15 @@ if __name__ == '__main__':
         for _, data in enumerate(train_dataloader):
             current_iter += 1
             with torch.no_grad():
-                edge = net_G(data['im'].cuda(non_blocking=True))[-1]
-                edge = edge>0.5
-                edge = edge.float()
+
                 c = model.module.get_learned_conditioning(data['sentence'])
                 z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
                 z = model.module.get_first_stage_encoding(z)
 
+            mask = data['mask']
             optimizer.zero_grad()
             model.zero_grad()
-            features_adapter = model_ad(edge)
+            features_adapter = model_ad(mask)
             l_pixel, loss_dict = model(z, c=c, features_adapter = features_adapter)
             l_pixel.backward()
             optimizer.step()
@@ -371,12 +364,10 @@ if __name__ == '__main__':
                         sampler = DDIMSampler(model.module)
                     print(data['im'].shape)
                     c = model.module.get_learned_conditioning(data['sentence'])
-                    edge = net_G(data['im'].cuda(non_blocking=True))[-1]
-                    edge = edge>0.5
-                    edge = edge.float()
-                    im_edge = tensor2img(edge)
-                    cv2.imwrite(os.path.join(experiments_root, 'visualization', 'edge_%04d.png'%epoch), im_edge)
-                    features_adapter = model_ad(edge)
+                    mask = data['mask']
+                    im_mask = tensor2img(mask)
+                    cv2.imwrite(os.path.join(experiments_root, 'visualization', 'mask_%04d.png' % epoch), im_mask)
+                    features_adapter = model_ad(mask)
                     shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
                     samples_ddim, _ = sampler.sample(S=opt.ddim_steps,
                                                         conditioning=c,
