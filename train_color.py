@@ -131,7 +131,7 @@ parser.add_argument(
 parser.add_argument(
         "--config",
         type=str,
-        default="configs/stable-diffusion/train_sketch.yaml",
+        default="configs/stable-diffusion/sd-v1-inference.yaml",
         help="path to config which constructs model",
 )
 parser.add_argument(
@@ -256,7 +256,7 @@ if __name__ == '__main__':
             num_workers=1,
             pin_memory=False)
 
-    # stable diffusion
+    # inpainting
     model = load_model_from_config(config, f"{opt.ckpt}").to(device)
 
     # ad encoder
@@ -315,15 +315,20 @@ if __name__ == '__main__':
         for _, data in enumerate(train_dataloader):
             current_iter += 1
             with torch.no_grad():
-
+                # txt
                 c = model.module.get_learned_conditioning(data['sentence'])
+                # img
                 z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
                 z = model.module.get_first_stage_encoding(z)
-
+            # mask
             mask = data['mask']
+            bchw = [1, 4, 64, 64]
+            mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
+
             optimizer.zero_grad()
             model.zero_grad()
             features_adapter = model_ad(mask)
+            ### TO DO
             l_pixel, loss_dict = model(z, c=c, features_adapter = features_adapter)
             l_pixel.backward()
             optimizer.step()
