@@ -232,12 +232,14 @@ if __name__ == '__main__':
     train_dataset = dataset_cod_mask_color(path_json_train,
     root_path_im='/cluster/scratch/denfan/inpainting_stable/background',
     root_path_mask='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_mask',
+    root_path_color='/cluster/scratch/denfan/inpainting_stable/cond',
     image_size=512
     )
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     val_dataset = dataset_cod_mask_color(path_json_val,
     root_path_im='/cluster/scratch/denfan/inpainting_stable/background',
     root_path_mask='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_mask',
+    root_path_color='/cluster/scratch/denfan/inpainting_stable/cond',
     image_size=512
     )
     train_dataloader = torch.utils.data.DataLoader(
@@ -269,9 +271,6 @@ if __name__ == '__main__':
         model,
         device_ids=[opt.local_rank],
         output_device=opt.local_rank)
-
-
-
 
     # optimizer
     params = list(model_ad.parameters())
