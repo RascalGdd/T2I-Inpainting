@@ -1,5 +1,6 @@
 import argparse
 import torch
+import random
 from omegaconf import OmegaConf
 from transformers import AutoFeatureExtractor
 from ldm.models.diffusion.ddim import DDIMSampler
@@ -10,6 +11,7 @@ from ldm.util import fix_cond_shapes, load_model_from_config, read_state_dict
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
 DEFAULT_NEGATIVE_PROMPT = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, ' \
                           'fewer digits, cropped, worst quality, low quality'
+
 #DEFAULT_NEGATIVE_PROMPT = ['longbody', 'lowres', 'bad anatomy', 'bad hands', 'missing fingers', 'extra digit', 'fewer digits', 'cropped', 'worst quality', 'low quality']
 #DEFAULT_NEGATIVE_PROMPT = '1'
 import PIL.Image as Image
@@ -80,7 +82,7 @@ def get_base_argument_parser() -> argparse.ArgumentParser:
         '--prompt',
         type=str,
         nargs='?',
-        default=None,
+        default='animal',
         help='positive prompt',
     )
 
@@ -90,13 +92,13 @@ def get_base_argument_parser() -> argparse.ArgumentParser:
         default=DEFAULT_NEGATIVE_PROMPT,
         help='negative prompt',
     )
-
     parser.add_argument(
         '--cond_path',
         type=str,
         default=None,
         help='condition image path',
     )
+
 
     parser.add_argument(
         '--cond_inp_type',
@@ -211,7 +213,7 @@ def get_base_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--seed',
         type=int,
-        default=42,
+        default=random.randint(0, 10000),
     )
 
     parser.add_argument(
@@ -220,18 +222,7 @@ def get_base_argument_parser() -> argparse.ArgumentParser:
         default=4,
         help='# of samples to generate',
     )
-    parser.add_argument(
-        '--path_img',
-        type=str,
-        default='test_images/COD10K-CAM-1-Aquatic-1-BatFish-1.jpg',
-        help='load image',
-    )
-    parser.add_argument(
-        '--path_mask',
-        type=str,
-        default='test_images/COD10K-CAM-1-Aquatic-1-BatFish-1.png',
-        help='load mask',
-    )
+
     
     
     
@@ -333,11 +324,11 @@ def get_adapters(opt, cond_type: ExtraCondition):
     return adapter
 
 
-def diffusion_inference(opt, model, sampler, adapter_features, append_to_context=None):
-    img = Image.open(opt.path_img).convert("RGB").resize([512, 512])
-    mask = Image.open(opt.path_mask).resize([512, 512])
-    batch = make_batch_sd(img, mask, opt.prompt, "cuda")
-    print("prompt is ", opt.prompt)
+def diffusion_inference(path_img,path_mask,prompt,opt, model, sampler, adapter_features, append_to_context=None):
+    img = Image.open(path_img).convert("RGB").resize([512, 512])
+    mask = Image.open(path_mask).resize([512, 512])
+    batch = make_batch_sd(img, mask, prompt, "cuda")
+    print("prompt is ", prompt)
 
     # get text embedding
     # c = model.get_learned_conditioning([opt.prompt])
@@ -353,16 +344,16 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
             cc = model.get_first_stage_encoding(model.encode_first_stage(cc))
         c_cat.append(cc)
     c_cat = torch.cat(c_cat, dim=1)
-    cond = {"c_concat": [c_cat], "c_crossattn": [c]}
+    #cond = {"c_concat": [c_cat], "c_crossattn": [c]}
 
     # if opt.scale != 1.0:
     #     uc = model.get_learned_conditioning([opt.neg_prompt])
     # else:
     #     uc = None
-    uc_cross = model.get_unconditional_conditioning(1, DEFAULT_NEGATIVE_PROMPT)
-    print('look!!!')
-    print(uc_cross.shape)
 
+    uc_cross = model.get_learned_conditioning([DEFAULT_NEGATIVE_PROMPT])
+    c, uc_cross = fix_cond_shapes(model, c, uc_cross)
+    cond = {"c_concat": [c_cat], "c_crossattn": [c]}
     uc_full = {"c_concat": [c_cat], "c_crossattn": [uc_cross]}
     # c, uc = fix_cond_shapes(model, c, uc)
 
@@ -392,7 +383,6 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
     result = x_samples.cpu().numpy().transpose(0,2,3,1)
 #    result, has_nsfw_concept = check_safety(result)
     result = result*255
-
     result = [Image.fromarray(img.astype(np.uint8)) for img in result]
 
     return result[0]
