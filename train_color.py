@@ -343,7 +343,7 @@ if __name__ == '__main__':
                 cond_model = get_cond_model(opt, getattr(ExtraCondition, 'color'))
                 process_cond_module = getattr(api, f'get_cond_color')
 
-                colormap = process_cond_module(opt, data['color'].cuda(non_blocking=True), 'image', cond_model) # here, tensor
+                colormap = process_cond_module(opt, data['color'].numpy().cuda(non_blocking=True), 'image', cond_model) # here, tensor
                 #cv2.imwrite(os.path.join(experiments_root, 'visualization', 'name'), tensor2img(colormap))           
                 
 
