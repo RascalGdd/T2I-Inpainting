@@ -22,8 +22,10 @@ from ldm.models.diffusion.dpm_solver import DPMSolverSampler
 from ldm.models.diffusion.plms import PLMSSampler
 from ldm.modules.encoders.adapter import Adapter
 from ldm.util import instantiate_from_config
-
-
+from ldm.modules.extra_condition.api import (ExtraCondition, get_adapter_feature, get_cond_model)
+from ldm.inference_base import (diffusion_inference, get_adapters, get_base_argument_parser, get_sd_models)
+from ldm.modules.extra_condition import api
+from ldm.modules.extra_condition.api import (ExtraCondition, get_adapter_feature, get_cond_model)
 
 def load_model_from_config(config, ckpt, verbose=False):
     print(f"Loading model from {ckpt}")
@@ -338,11 +340,10 @@ if __name__ == '__main__':
                 mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
                 # TO DO: color_map
                 # from ldm.inference_base
-                adapter = get_adapters(opt, getattr(ExtraCondition, 'color'))
-                cond_model = None
-                cond_model = get_cond_model(opt, getattr(ExtraCondition, 'color'))    
+                cond_model = get_cond_model(opt, getattr(ExtraCondition, 'color'))
                 process_cond_module = getattr(api, f'get_cond_color')
-                colormap = process_cond_module(opt, os.path.join(root_path_color,name), image, cond_model) # here, tensor
+
+                colormap = process_cond_module(opt, data['color'].cuda(non_blocking=True), 'image', cond_model) # here, tensor
                 #cv2.imwrite(os.path.join(experiments_root, 'visualization', 'name'), tensor2img(colormap))           
                 
 
