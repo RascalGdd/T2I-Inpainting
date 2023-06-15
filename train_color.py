@@ -14,7 +14,7 @@ from basicsr.utils import (get_env_info, get_root_logger, get_time_str,
 from basicsr.utils.options import copy_opt_file, dict2str
 from omegaconf import OmegaConf
 from PIL import Image
-
+from basicsr.utils import tensor2img
 from ldm.data.dataset_coco import dataset_cod_mask_color
 from dist_util import get_bare_model, get_dist_info, init_dist, master_only
 from ldm.models.diffusion.ddim import DDIMSampler
@@ -86,7 +86,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--bsize",
     type=int,
-    default=8,
+    default=1,
     help="the prompt to render"
 )
 parser.add_argument(
@@ -98,7 +98,7 @@ parser.add_argument(
 parser.add_argument(
     "--num_workers",
     type=int,
-    default=8,
+    default=1,
     help="the prompt to render"
 )
 parser.add_argument(
@@ -125,7 +125,8 @@ parser.add_argument(
 parser.add_argument(
         "--ckpt",
         type=str,
-        default="models/sd-v1-4.ckpt",
+        #default="models/sd-v1-4.ckpt",
+        default="models/sd-v1-5-inpainting.ckpt",
         help="path to checkpoint of model",
 )
 parser.add_argument(
@@ -215,7 +216,13 @@ opt = parser.parse_args()
 
 if __name__ == '__main__':
     config = OmegaConf.load(f"{opt.config}")
-    opt.name = config['name']
+    #opt.name = config['name']
+    opt.name = 'train_color'
+    
+    os.environ['RANK']='0'
+    os.environ['WORLD_SIZE']='1'
+    os.environ['MASTER_ADDR']='127.0.0.1'
+    os.environ['MASTER_PORT']='1234'
 
     # distributed setting
     init_dist(opt.launcher)
@@ -225,10 +232,15 @@ if __name__ == '__main__':
 
     # dataset
 
-    # path_json_train = 'coco_stuff/mask/annotations/captions_train2017.json'
-    # path_json_val = 'coco_stuff/mask/annotations/captions_val2017.json'
-    path_json_train = '/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/testjson_dict.json'
-    path_json_val = '/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/testjson_dict.json'
+
+    #path_json_train = '/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/testjson_dict.json'
+    #path_json_val = '/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/testjson_dict.json'
+    
+    ###################
+    path_json_train = '/cluster/work/cvl/denfan/diandian/control/inpainting/short.json'
+    path_json_val = '/cluster/work/cvl/denfan/diandian/control/inpainting/short.json'
+    ###################
+    
     train_dataset = dataset_cod_mask_color(path_json_train,
     root_path_im='/cluster/scratch/denfan/inpainting_stable/background',
     root_path_mask='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_mask',
@@ -320,14 +332,23 @@ if __name__ == '__main__':
                 # img
                 z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
                 z = model.module.get_first_stage_encoding(z)
-            # mask
-            mask = data['mask']
-            bchw = [1, 4, 64, 64]
-            mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
+                # mask
+                mask = data['mask']
+                bchw = [1, 4, 64, 64]
+                mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
+                # TO DO: color_map
+                # from ldm.inference_base
+                adapter = get_adapters(opt, getattr(ExtraCondition, 'color'))
+                cond_model = None
+                cond_model = get_cond_model(opt, getattr(ExtraCondition, 'color'))    
+                process_cond_module = getattr(api, f'get_cond_color')
+                colormap = process_cond_module(opt, os.path.join(root_path_color,name), image, cond_model) # here, tensor
+                #cv2.imwrite(os.path.join(experiments_root, 'visualization', 'name'), tensor2img(colormap))           
+                
 
             optimizer.zero_grad()
             model.zero_grad()
-            features_adapter = model_ad(mask)
+            features_adapter = model_ad(colormap)
             ### TO DO
             l_pixel, loss_dict = model(z, c=c, features_adapter = features_adapter)
             l_pixel.backward()
