@@ -1,6 +1,8 @@
 import json
 import cv2
 import os
+import torch
+import numpy as np
 from basicsr.utils import img2tensor
 
 
@@ -50,8 +52,9 @@ class dataset_cod_mask_color():
         self.root_path_mask = root_path_mask
         self.root_path_color = root_path_color
         for file in data:
-            name = file['source']
+            name = file['source'].replace('\\','/')
             name = os.path.basename(name)
+            #print('!!!!!!!!!!!',name)
             prompt = file['prompt']
             prompt = 'a ' + prompt + ', best quality, extremely detailed'
             self.files.append({'name': name, 'sentence': prompt})
@@ -65,16 +68,21 @@ class dataset_cod_mask_color():
         im = cv2.resize(im, (512, 512))
         im = img2tensor(im, bgr2rgb=True, float32=True) / 255.
 
-        mask = cv2.imread(os.path.join(self.root_path_mask, name.replace('jpg','png')))
+        mask = cv2.imread(os.path.join(self.root_path_mask, name.replace('jpg','png')), cv2.IMREAD_GRAYSCALE)
         mask = cv2.resize(mask, (512, 512))
-        mask = img2tensor(mask, bgr2rgb=True, float32=True) / 255.
-
-        color = cv2.imread(os.path.join(self.root_path_color, name))
+        #mask = img2tensor(mask, float32=True) / 255.       
+        mask = torch.from_numpy(mask.astype(np.float32)/ 255.0)
+        
+        masked_img = cv2.imread(os.path.join('/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_source', name))
+        masked_img = cv2.resize(masked_img, (512, 512))
+        masked_img = img2tensor(masked_img, bgr2rgb=True, float32=True) / 255.
+        
+        color = cv2.imread(os.path.join(self.root_path_color, name.replace('jpg','png')))
         color = cv2.resize(color, (512, 512))
         color = img2tensor(color, bgr2rgb=True, float32=True) / 255.
 
         sentence = file['sentence']
-        return {'im': im, 'mask': mask, 'color': color,'sentence': sentence}
+        return {'im': im, 'mask': mask, 'color': color,'masked_img': masked_img,'sentence': sentence}
 
     def __len__(self):
         return len(self.files)
