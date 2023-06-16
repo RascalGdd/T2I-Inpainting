@@ -332,25 +332,20 @@ if __name__ == '__main__':
             current_iter += 1
             with torch.no_grad():
                 c_cat = list()
-                for ck in model.concat_keys:
-                    cc = batch[ck].float()
-                    if ck != model.masked_image_key:
-                        bchw = [1, 4, 64, 64]
-                        cc = torch.nn.functional.interpolate(cc, size=bchw[-2:])
-                    else:
-                        cc = model.get_first_stage_encoding(model.encode_first_stage(cc))
-                    c_cat.append(cc)
-                c_cat = torch.cat(c_cat, dim=1)
-                # cond
-                c = model.module.get_learned_conditioning(data['sentence'])
-                cond = {"c_concat": [c_cat], "c_crossattn": [c]}
                 # img
                 z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
                 z = model.module.get_first_stage_encoding(z)
+                c_cat.append(z)
                 # mask
                 mask = data['mask']
                 bchw = [1, 4, 64, 64]
                 mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
+                c_cat.append(mask)
+                # cond
+                c = model.module.get_learned_conditioning(data['sentence'])
+
+                c_cat = torch.cat(c_cat, dim=1)
+                cond = {"c_concat": [c_cat], "c_crossattn": [c]}
                 # color_map
                 colormap = data['color']
                 #####################
