@@ -343,7 +343,7 @@ if __name__ == '__main__':
                 c_cat.append(mask)
                 # cond
                 c = model.module.get_learned_conditioning(data['sentence'])
-
+                c_cat = [cc.to(device) for cc in c_cat]
                 c_cat = torch.cat(c_cat, dim=1)
                 cond = {"c_concat": [c_cat], "c_crossattn": [c]}
                 # color_map
@@ -370,7 +370,7 @@ if __name__ == '__main__':
             model.zero_grad()
             features_adapter = model_ad(colormap.to(device))# expect[320, 64, 3, 3], now[1, 192, 64, 64]
             ### TO DO
-            l_pixel, loss_dict = model(z, c=c, features_adapter = features_adapter)
+            l_pixel, loss_dict = model(z, c=cond, features_adapter = features_adapter)
             l_pixel.backward()
             optimizer.step()
 
