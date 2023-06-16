@@ -215,6 +215,9 @@ parser.add_argument(
         help='number of scales'
 )
 opt = parser.parse_args()
+opt.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+opt.sd_ckpt = 'models/sd-v1-4.ckpt'
+opt.vae_ckpt = None
 
 if __name__ == '__main__':
     config = OmegaConf.load(f"{opt.config}")
@@ -338,13 +341,24 @@ if __name__ == '__main__':
                 mask = data['mask']
                 bchw = [1, 4, 64, 64]
                 mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
-                # TO DO: color_map
+                # color_map
                 # from ldm.inference_base
                 cond_model = get_cond_model(opt, getattr(ExtraCondition, 'color'))
                 process_cond_module = getattr(api, f'get_cond_color')
-
-                colormap = process_cond_module(opt, data['color'].numpy().cuda(non_blocking=True), 'image', cond_model) # here, tensor
-                #cv2.imwrite(os.path.join(experiments_root, 'visualization', 'name'), tensor2img(colormap))           
+                ## for test
+                #cv2.imwrite(os.path.join(experiments_root, 'visualization', 'color_img.jpg'), data['color'].numpy())
+                print(data['color'].shape)
+                color_tensor = data['color'].squeeze(dim=0)
+                print(color_tensor.shape)
+                color_np = color_tensor.permute(1, 2, 0).numpy()
+                color_np = np.clip(color_np, 0, 255)
+                color_np = color_np.astype(np.uint8)
+                print(color_np.shape)
+                cv2.imwrite(os.path.join(experiments_root, 'visualization', 'color_img.jpg'), color_np)
+                
+                
+                colormap = process_cond_module(opt, color_np, 'image', cond_model) # here, tensor
+                cv2.imwrite(os.path.join(experiments_root, 'visualization', 'name.png'), tensor2img(colormap))           
                 
 
             optimizer.zero_grad()
