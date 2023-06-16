@@ -14,13 +14,12 @@ from basicsr.utils import (get_env_info, get_root_logger, get_time_str,
 from basicsr.utils.options import copy_opt_file, dict2str
 from omegaconf import OmegaConf
 from PIL import Image
-from basicsr.utils import tensor2img
 from ldm.data.dataset_coco import dataset_cod_mask_color
 from dist_util import get_bare_model, get_dist_info, init_dist, master_only
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.dpm_solver import DPMSolverSampler
 from ldm.models.diffusion.plms import PLMSSampler
-from ldm.modules.encoders.adapter import Adapter
+from ldm.modules.encoders.adapter import Adapter_light
 from ldm.util import instantiate_from_config
 from ldm.modules.extra_condition.api import (ExtraCondition, get_adapter_feature, get_cond_model)
 from ldm.inference_base import (diffusion_inference, get_adapters, get_base_argument_parser, get_sd_models)
@@ -247,16 +246,16 @@ if __name__ == '__main__':
     ###################
     
     train_dataset = dataset_cod_mask_color(path_json_train,
-    root_path_im='/cluster/scratch/denfan/inpainting_stable/background',
+    root_path_im='/cluster/scratch/denfan/inpainting_stable/background_short',
     root_path_mask='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_mask',
-    root_path_color='/cluster/scratch/denfan/inpainting_stable/cond',
+    root_path_color='/cluster/scratch/denfan/inpainting_stable/colormap',
     image_size=512
     )
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     val_dataset = dataset_cod_mask_color(path_json_val,
-    root_path_im='/cluster/scratch/denfan/inpainting_stable/background',
+    root_path_im='/cluster/scratch/denfan/inpainting_stable/background_short',
     root_path_mask='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_mask',
-    root_path_color='/cluster/scratch/denfan/inpainting_stable/cond',
+    root_path_color='/cluster/scratch/denfan/inpainting_stable/colormap',
     image_size=512
     )
     train_dataloader = torch.utils.data.DataLoader(
@@ -277,7 +276,7 @@ if __name__ == '__main__':
     model = load_model_from_config(config, f"{opt.ckpt}").to(device)
 
     # ad encoder
-    model_ad = Adapter(channels=[320, 640, 1280, 1280][:4], nums_rb=2, ksize=1, sk=True, use_conv=False).to(device)
+    model_ad = Adapter_light(channels=[320, 640, 1280, 1280][:4],cin=192, nums_rb=4).to(device)
 
     # to gpus
     model_ad = torch.nn.parallel.DistributedDataParallel(
@@ -332,8 +331,19 @@ if __name__ == '__main__':
         for _, data in enumerate(train_dataloader):
             current_iter += 1
             with torch.no_grad():
-                # txt
+                c_cat = list()
+                for ck in model.concat_keys:
+                    cc = batch[ck].float()
+                    if ck != model.masked_image_key:
+                        bchw = [1, 4, 64, 64]
+                        cc = torch.nn.functional.interpolate(cc, size=bchw[-2:])
+                    else:
+                        cc = model.get_first_stage_encoding(model.encode_first_stage(cc))
+                    c_cat.append(cc)
+                c_cat = torch.cat(c_cat, dim=1)
+                # cond
                 c = model.module.get_learned_conditioning(data['sentence'])
+                cond = {"c_concat": [c_cat], "c_crossattn": [c]}
                 # img
                 z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
                 z = model.module.get_first_stage_encoding(z)
@@ -342,28 +352,28 @@ if __name__ == '__main__':
                 bchw = [1, 4, 64, 64]
                 mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
                 # color_map
-                # from ldm.inference_base
-                cond_model = get_cond_model(opt, getattr(ExtraCondition, 'color'))
-                process_cond_module = getattr(api, f'get_cond_color')
-                ## for test
-                #cv2.imwrite(os.path.join(experiments_root, 'visualization', 'color_img.jpg'), data['color'].numpy())
-                print(data['color'].shape)
-                color_tensor = data['color'].squeeze(dim=0)
-                print(color_tensor.shape)
-                color_np = color_tensor.permute(1, 2, 0).numpy()
-                color_np = np.clip(color_np, 0, 255)
-                color_np = color_np.astype(np.uint8)
-                print(color_np.shape)
-                cv2.imwrite(os.path.join(experiments_root, 'visualization', 'color_img.jpg'), color_np)
+                colormap = data['color']
+                #####################
+                #color_image = data['color'][0].numpy() * 255
+                #color_image = color_image.transpose(1, 2, 0)
+                #cv2.imwrite('colormap.jpg', color_image)
+                #####################
+                #adapter_features, append_to_context = get_adapter_feature(cond, adapter)
+                #result = diffusion_inference(path_img,path_mask,prompt,opt, sd_model, sampler, adapter_features, append_to_context)
                 
+
+            
                 
-                colormap = process_cond_module(opt, color_np, 'image', cond_model) # here, tensor
-                cv2.imwrite(os.path.join(experiments_root, 'visualization', 'name.png'), tensor2img(colormap))           
+                # cond
+                #cond_model = get_cond_model(opt, getattr(ExtraCondition, 'color'))
+                #process_cond_module = getattr(api, f'get_cond_color') 
+                #colormap = process_cond_module(opt, color_np, 'image', cond_model) # here, tensor
+                #cv2.imwrite(os.path.join(experiments_root, 'visualization', 'colormap.png'), tensor2img(colormap))           
                 
 
             optimizer.zero_grad()
             model.zero_grad()
-            features_adapter = model_ad(colormap)
+            features_adapter = model_ad(colormap.to(device))# expect[320, 64, 3, 3], now[1, 192, 64, 64]
             ### TO DO
             l_pixel, loss_dict = model(z, c=c, features_adapter = features_adapter)
             l_pixel.backward()
