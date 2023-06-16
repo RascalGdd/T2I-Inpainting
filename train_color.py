@@ -335,12 +335,16 @@ if __name__ == '__main__':
                 # img
                 z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
                 z = model.module.get_first_stage_encoding(z)
-                c_cat.append(z)
+                #print(z.shape)
                 # mask
                 mask = data['mask']
                 bchw = [1, 4, 64, 64]
                 mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
                 c_cat.append(mask)
+                # masked_img
+                masked_img = data['masked_img']
+                masked_img = model.module.get_first_stage_encoding(model.encode_first_stage(masked_img))
+                c_cat.append(masked_img)
                 # cond
                 c = model.module.get_learned_conditioning(data['sentence'])
                 c_cat = [cc.to(device) for cc in c_cat]
@@ -370,6 +374,8 @@ if __name__ == '__main__':
             model.zero_grad()
             features_adapter = model_ad(colormap.to(device))# expect[320, 64, 3, 3], now[1, 192, 64, 64]
             ### TO DO
+            
+            
             l_pixel, loss_dict = model(z, c=cond, features_adapter = features_adapter)
             l_pixel.backward()
             optimizer.step()
