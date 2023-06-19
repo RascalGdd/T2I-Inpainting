@@ -25,25 +25,28 @@ from ldm.modules.extra_condition.api import (ExtraCondition, get_adapter_feature
 from ldm.inference_base import (diffusion_inference, get_adapters, get_base_argument_parser, get_sd_models)
 from ldm.modules.extra_condition import api
 from ldm.modules.extra_condition.api import (ExtraCondition, get_adapter_feature, get_cond_model)
+from ldm.util import fix_cond_shapes, load_model_from_config, read_state_dict
 
-def load_model_from_config(config, ckpt, verbose=False):
-    print(f"Loading model from {ckpt}")
-    pl_sd = torch.load(ckpt, map_location="cpu")
-    if "global_step" in pl_sd:
-        print(f"Global Step: {pl_sd['global_step']}")
-    sd = pl_sd["state_dict"]
-    model = instantiate_from_config(config.model)
-    m, u = model.load_state_dict(sd, strict=False)
-    if len(m) > 0 and verbose:
-        print("missing keys:")
-        print(m)
-    if len(u) > 0 and verbose:
-        print("unexpected keys:")
-        print(u)
-
-    model.cuda()
-    model.eval()
-    return model
+#def load_model_from_config(config, ckpt, verbose=False):
+#     print(f"Loading model from {ckpt}")
+#     #########################################
+#     pl_sd = torch.load(ckpt, map_location="cpu")
+#     if "global_step" in pl_sd:
+#         print(f"Global Step: {pl_sd['global_step']}")
+#     sd = pl_sd["state_dict"]
+#     #########################################
+#     model = instantiate_from_config(config.model)
+#     m, u = model.load_state_dict(sd, strict=False)
+#     if len(m) > 0 and verbose:
+#         print("missing keys:")
+#         print(m)
+#     if len(u) > 0 and verbose:
+#         print("unexpected keys:")
+#         print(u)
+# 
+#     model.cuda()
+#     model.eval()
+#     return model
 
 @master_only
 def mkdir_and_rename(path):
@@ -215,7 +218,6 @@ parser.add_argument(
 )
 opt = parser.parse_args()
 opt.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-opt.sd_ckpt = 'models/sd-v1-4.ckpt'
 opt.vae_ckpt = None
 
 if __name__ == '__main__':
@@ -273,7 +275,8 @@ if __name__ == '__main__':
             pin_memory=False)
 
     # inpainting
-    model = load_model_from_config(config, f"{opt.ckpt}").to(device)
+    #model = load_model_from_config(config, f"{opt.ckpt}").to(device)
+    model = load_model_from_config(config, opt.ckpt, opt.vae_ckpt).to(opt.device)
 
     # ad encoder
     model_ad = Adapter_light(channels=[320, 640, 1280, 1280][:4],cin=192, nums_rb=4).to(device)
@@ -333,28 +336,39 @@ if __name__ == '__main__':
             with torch.no_grad():
                 c_cat = list()
                 # img
+                #data['im'].to(device)
+                data['mask'].to(device)
+                #data['masked_img'].to(device)
+                data['color'].to(device)
+                print("data['im']:",data['im'].dtype)
                 z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
+                #z = model.module.encode_first_stage(data['im']*2-1.)
                 z = model.module.get_first_stage_encoding(z)
-                #print(z.shape)
+                print("z:",z.dtype)
                 # mask
                 mask = data['mask']
                 mask = mask[None]
                 bchw = [1, 4, 64, 64]
-                print(mask.shape)
+                print("mask:",mask.dtype)
                 mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
                 c_cat.append(mask)
                 # masked_img
                 masked_img = data['masked_img']
-                print(masked_img.shape)
-                masked_img = model.get_first_stage_encoding(model.encode_first_stage(masked_img))
+                print("masked_img:",masked_img.dtype)
+                masked_img = model.module.encode_first_stage((masked_img*2-1.).cuda(non_blocking=True))
+                #masked_img = model.module.encode_first_stage(masked_img*2-1.)
+                masked_img = model.module.get_first_stage_encoding(masked_img)
                 c_cat.append(masked_img)
                 # cond
-                c = model.module.get_learned_conditioning(data['sentence'])
+                #c = model.module.get_learned_conditioning(data['sentence'])
+                c = model.module.cond_stage_model.encode(data['sentence'])
                 c_cat = [cc.to(device) for cc in c_cat]
                 c_cat = torch.cat(c_cat, dim=1)
                 cond = {"c_concat": [c_cat], "c_crossattn": [c]}
                 # color_map
                 colormap = data['color']
+                colormap = colormap*2-1.
+                print("colormap:",colormap.dtype)
                 #####################
                 #color_image = data['color'][0].numpy() * 255
                 #color_image = color_image.transpose(1, 2, 0)
