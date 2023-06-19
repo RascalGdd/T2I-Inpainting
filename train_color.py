@@ -370,31 +370,31 @@ if __name__ == '__main__':
             model.zero_grad()
             features_adapter = model_ad(colormap.to(device))
             ### TO DO
-            l_pixel, loss_dict = model(z, c=cond, features_adapter = features_adapter)
-            l_pixel.backward()
-            optimizer.step()
+            #l_pixel, loss_dict = model(z, c=cond, features_adapter = features_adapter)
+            #l_pixel.backward()
+            #optimizer.step()
 
-            if (current_iter+1)%opt.print_fq == 0:
-                logger.info(loss_dict)
+            #if (current_iter+1)%opt.print_fq == 0:
+            #    logger.info(loss_dict)
 
             # save checkpoint
-            rank, _ = get_dist_info()
-            if (rank==0) and ((current_iter+1)%config['training']['save_freq'] == 0):
-                save_filename = f'model_ad_{current_iter+1}.pth'
-                save_path = os.path.join(experiments_root, 'models', save_filename)
-                save_dict = {}
-                model_ad_bare = get_bare_model(model_ad)
-                state_dict = model_ad_bare.state_dict()
-                for key, param in state_dict.items():
-                    if key.startswith('module.'):  # remove unnecessary 'module.'
-                        key = key[7:]
-                    save_dict[key] = param.cpu()
-                torch.save(save_dict, save_path)
+            #rank, _ = get_dist_info()
+            #if (rank==0) and ((current_iter+1)%config['training']['save_freq'] == 0):
+            #    save_filename = f'model_ad_{current_iter+1}.pth'
+            #    save_path = os.path.join(experiments_root, 'models', save_filename)
+            #    save_dict = {}
+            #    model_ad_bare = get_bare_model(model_ad)
+            #    state_dict = model_ad_bare.state_dict()
+            #    for key, param in state_dict.items():
+            #        if key.startswith('module.'):  # remove unnecessary 'module.'
+            #            key = key[7:]
+            #        save_dict[key] = param.cpu()
+            #    torch.save(save_dict, save_path)
             # save state
-                state = {'epoch': epoch, 'iter': current_iter+1, 'optimizers': optimizer.state_dict()}
-                save_filename = f'{current_iter+1}.state'
-                save_path = os.path.join(experiments_root, 'training_states', save_filename)
-                torch.save(state, save_path)
+            #    state = {'epoch': epoch, 'iter': current_iter+1, 'optimizers': optimizer.state_dict()}
+            #    save_filename = f'{current_iter+1}.state'
+            #    save_path = os.path.join(experiments_root, 'training_states', save_filename)
+            #    torch.save(state, save_path)
 
         # val
         
@@ -425,11 +425,14 @@ if __name__ == '__main__':
                     c = model.module.cond_stage_model.encode(data['sentence'])
                     c_cat = [cc.to(device) for cc in c_cat]
                     c_cat = torch.cat(c_cat, dim=1)
-                    cond = {"c_concat": [c_cat], "c_crossattn": [c]}
+                    
                     neg_prompt = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, ' \
                           'fewer digits, cropped, worst quality, low quality'
-                    #uc = model.module.get_learned_conditioning([neg_prompt])
-                    uc = model.module.cond_stage_model.encode(neg_prompt)
+                    #neg_prompt = ''
+                    uc = model.module.get_learned_conditioning([neg_prompt])
+                    #uc = model.module.cond_stage_model.encode(neg_prompt)
+                    c, uc = fix_cond_shapes(model.module, c, uc)
+                    cond = {"c_concat": [c_cat], "c_crossattn": [c]}
                     uc = {"c_concat": [c_cat], "c_crossattn": [uc]}
                     # color_map
                     colormap = data['color']
@@ -437,7 +440,7 @@ if __name__ == '__main__':
                     
                     model_ad = Adapter_light(channels=[320, 640, 1280, 1280][:4],cin=192, nums_rb=4).to(device)
                     features_adapter = model_ad(colormap.to(device))
-                    print(opt.C, opt.H // opt.f, opt.W // opt.f)
+                    #print(opt.C, opt.H // opt.f, opt.W // opt.f)
                     shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
                     samples_ddim, _ = sampler.sample(S=opt.ddim_steps,
                                                         conditioning=cond,
@@ -457,4 +460,4 @@ if __name__ == '__main__':
                         img = x_sample.astype(np.uint8)
                         
                         cv2.imwrite(os.path.join(experiments_root, 'visualization', 'sample_e%04d_s%04d.png'%(epoch, id_sample)), img[:,:,::-1])
-                    break        
+                    #break        
