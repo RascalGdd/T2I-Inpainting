@@ -222,6 +222,9 @@ opt = parser.parse_args()
 opt.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 opt.vae_ckpt = None
 
+opt.cond_tau=1.0
+opt.style_cond_tau=1.0
+
 if __name__ == '__main__':
     config = OmegaConf.load(f"{opt.config}")
     #opt.name = config['name']
@@ -449,9 +452,11 @@ if __name__ == '__main__':
                                                         verbose=False,
                                                         unconditional_guidance_scale=opt.scale,
                                                         unconditional_conditioning=uc,
-                                                        eta=opt.ddim_eta,
                                                         x_T=None,
-                                                        features_adapter=features_adapter)
+                                                        features_adapter=features_adapter,
+                                                        append_to_context=None,
+                                                        cond_tau=opt.cond_tau,
+                                                        style_cond_tau=opt.style_cond_tau,)
                     x_samples_ddim = model.module.decode_first_stage(samples_ddim)
                     x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
                     x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).numpy()
