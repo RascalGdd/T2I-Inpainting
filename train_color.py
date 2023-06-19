@@ -96,7 +96,8 @@ parser.add_argument(
 parser.add_argument(
     "--epochs",
     type=int,
-    default=10000,
+    #default=10000,
+    default=1,
     help="the prompt to render"
 )
 parser.add_argument(
@@ -190,7 +191,8 @@ parser.add_argument(
 parser.add_argument(
         "--scale",
         type=float,
-        default=7.5,
+        #default=7.5,
+        default=9,
         help="unconditional guidance scale: eps = eps(x, empty) + scale * (eps(x, cond) - eps(x, empty))",
 )
 parser.add_argument(
@@ -336,27 +338,19 @@ if __name__ == '__main__':
             with torch.no_grad():
                 c_cat = list()
                 # img
-                #data['im'].to(device)
                 data['mask'].to(device)
-                #data['masked_img'].to(device)
                 data['color'].to(device)
-                print("data['im']:",data['im'].dtype)
                 z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
-                #z = model.module.encode_first_stage(data['im']*2-1.)
                 z = model.module.get_first_stage_encoding(z)
-                print("z:",z.dtype)
                 # mask
                 mask = data['mask']
                 mask = mask[None]
                 bchw = [1, 4, 64, 64]
-                print("mask:",mask.dtype)
                 mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
                 c_cat.append(mask)
                 # masked_img
                 masked_img = data['masked_img']
-                print("masked_img:",masked_img.dtype)
                 masked_img = model.module.encode_first_stage((masked_img*2-1.).cuda(non_blocking=True))
-                #masked_img = model.module.encode_first_stage(masked_img*2-1.)
                 masked_img = model.module.get_first_stage_encoding(masked_img)
                 c_cat.append(masked_img)
                 # cond
@@ -368,31 +362,14 @@ if __name__ == '__main__':
                 # color_map
                 colormap = data['color']
                 colormap = colormap*2-1.
-                print("colormap:",colormap.dtype)
-                #####################
-                #color_image = data['color'][0].numpy() * 255
-                #color_image = color_image.transpose(1, 2, 0)
-                #cv2.imwrite('colormap.jpg', color_image)
-                #####################
-                #adapter_features, append_to_context = get_adapter_feature(cond, adapter)
-                #result = diffusion_inference(path_img,path_mask,prompt,opt, sd_model, sampler, adapter_features, append_to_context)
-                
 
-            
-                
-                # cond
-                #cond_model = get_cond_model(opt, getattr(ExtraCondition, 'color'))
-                #process_cond_module = getattr(api, f'get_cond_color') 
-                #colormap = process_cond_module(opt, color_np, 'image', cond_model) # here, tensor
-                #cv2.imwrite(os.path.join(experiments_root, 'visualization', 'colormap.png'), tensor2img(colormap))           
+         
                 
 
             optimizer.zero_grad()
             model.zero_grad()
-            features_adapter = model_ad(colormap.to(device))# expect[320, 64, 3, 3], now[1, 192, 64, 64]
+            features_adapter = model_ad(colormap.to(device))
             ### TO DO
-            
-            
             l_pixel, loss_dict = model(z, c=cond, features_adapter = features_adapter)
             l_pixel.backward()
             optimizer.step()
@@ -420,30 +397,55 @@ if __name__ == '__main__':
                 torch.save(state, save_path)
 
         # val
+        
         rank, _ = get_dist_info()
         if rank==0:
             for data in val_dataloader:
                 with torch.no_grad():
-                    if opt.dpm_solver:
-                        sampler = DPMSolverSampler(model.module)
-                    elif opt.plms:
-                        sampler = PLMSSampler(model.module)
-                    else:
-                        sampler = DDIMSampler(model.module)
-                    print(data['im'].shape)
-                    c = model.module.get_learned_conditioning(data['sentence'])
+                    sampler = DDIMSampler(model.module)                    
+                    c_cat = list()
+                    # img
+                    data['mask'].to(device)
+                    data['color'].to(device)
+                    z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
+                    z = model.module.get_first_stage_encoding(z)
+                    # mask
                     mask = data['mask']
-                    im_mask = tensor2img(mask)
-                    cv2.imwrite(os.path.join(experiments_root, 'visualization', 'mask_%04d.png' % epoch), im_mask)
-                    features_adapter = model_ad(mask)
+                    mask = mask[None]
+                    bchw = [1, 4, 64, 64]
+                    mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
+                    c_cat.append(mask)
+                    # masked_img
+                    masked_img = data['masked_img']
+                    masked_img = model.module.encode_first_stage((masked_img*2-1.).cuda(non_blocking=True))
+                    masked_img = model.module.get_first_stage_encoding(masked_img)
+                    c_cat.append(masked_img)
+                    # cond
+                    #c = model.module.get_learned_conditioning([data['sentence']])
+                    c = model.module.cond_stage_model.encode(data['sentence'])
+                    c_cat = [cc.to(device) for cc in c_cat]
+                    c_cat = torch.cat(c_cat, dim=1)
+                    cond = {"c_concat": [c_cat], "c_crossattn": [c]}
+                    neg_prompt = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, ' \
+                          'fewer digits, cropped, worst quality, low quality'
+                    #uc = model.module.get_learned_conditioning([neg_prompt])
+                    uc = model.module.cond_stage_model.encode(neg_prompt)
+                    uc = {"c_concat": [c_cat], "c_crossattn": [uc]}
+                    # color_map
+                    colormap = data['color']
+                    colormap = colormap*2-1.
+                    
+                    model_ad = Adapter_light(channels=[320, 640, 1280, 1280][:4],cin=192, nums_rb=4).to(device)
+                    features_adapter = model_ad(colormap.to(device))
+                    print(opt.C, opt.H // opt.f, opt.W // opt.f)
                     shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
                     samples_ddim, _ = sampler.sample(S=opt.ddim_steps,
-                                                        conditioning=c,
+                                                        conditioning=cond,
                                                         batch_size=opt.n_samples,
                                                         shape=shape,
                                                         verbose=False,
                                                         unconditional_guidance_scale=opt.scale,
-                                                        unconditional_conditioning=model.module.get_learned_conditioning(opt.n_samples * [""]),
+                                                        unconditional_conditioning=uc,
                                                         eta=opt.ddim_eta,
                                                         x_T=None,
                                                         features_adapter=features_adapter)
@@ -453,6 +455,6 @@ if __name__ == '__main__':
                     for id_sample, x_sample in enumerate(x_samples_ddim):
                         x_sample = 255.*x_sample
                         img = x_sample.astype(np.uint8)
-                        img = cv2.putText(img.copy(), data['sentence'][0], (10,30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 2)
+                        
                         cv2.imwrite(os.path.join(experiments_root, 'visualization', 'sample_e%04d_s%04d.png'%(epoch, id_sample)), img[:,:,::-1])
-                    break
+                    break        
