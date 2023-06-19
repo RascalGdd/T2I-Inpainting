@@ -66,7 +66,9 @@ class dataset_cod_mask_color():
         # print(os.path.join(self.root_path_im, name))
         im = cv2.imread(os.path.join(self.root_path_im, name))
         im = cv2.resize(im, (512, 512))
-        im = img2tensor(im, bgr2rgb=True, float32=True) / 255.
+        im = im.transpose(2,0,1)
+        im = torch.from_numpy(im.astype(np.float32)/ 255.0)
+        #im = img2tensor(im, bgr2rgb=True, float32=True) / 255.
 
         mask = cv2.imread(os.path.join(self.root_path_mask, name.replace('jpg','png')), cv2.IMREAD_GRAYSCALE)
         mask = cv2.resize(mask, (512, 512))
@@ -75,11 +77,15 @@ class dataset_cod_mask_color():
         
         masked_img = cv2.imread(os.path.join('/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_source', name))
         masked_img = cv2.resize(masked_img, (512, 512))
-        masked_img = img2tensor(masked_img, bgr2rgb=True, float32=True) / 255.
+        masked_img = masked_img.transpose(2,0,1)
+        #masked_img = img2tensor(masked_img, bgr2rgb=True, float32=True) / 255.
+        masked_img = torch.from_numpy(masked_img.astype(np.float32)/ 255.0)
         
         color = cv2.imread(os.path.join(self.root_path_color, name.replace('jpg','png')))
         color = cv2.resize(color, (512, 512))
-        color = img2tensor(color, bgr2rgb=True, float32=True) / 255.
+        color = color.transpose(2,0,1)
+        #color = img2tensor(color, bgr2rgb=True, float32=True) / 255.
+        color = torch.from_numpy(color.astype(np.float32)/ 255.0)
 
         sentence = file['sentence']
         return {'im': im, 'mask': mask, 'color': color,'masked_img': masked_img,'sentence': sentence}
