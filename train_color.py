@@ -338,12 +338,15 @@ if __name__ == '__main__':
                 #print(z.shape)
                 # mask
                 mask = data['mask']
+                mask = mask[None]
                 bchw = [1, 4, 64, 64]
+                print(mask.shape)
                 mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
                 c_cat.append(mask)
                 # masked_img
                 masked_img = data['masked_img']
-                masked_img = model.module.get_first_stage_encoding(model.encode_first_stage(masked_img))
+                print(masked_img.shape)
+                masked_img = model.get_first_stage_encoding(model.encode_first_stage(masked_img))
                 c_cat.append(masked_img)
                 # cond
                 c = model.module.get_learned_conditioning(data['sentence'])
