@@ -329,7 +329,8 @@ if __name__ == '__main__':
 
     # copy the yml file to the experiment root
     copy_opt_file(opt.config, experiments_root)
-
+    neg_prompt = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, ' \
+          'fewer digits, cropped, worst quality, low quality'    
 
     # training
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
@@ -357,11 +358,13 @@ if __name__ == '__main__':
                 masked_img = model.module.get_first_stage_encoding(masked_img)
                 c_cat.append(masked_img)
                 # cond
-                #c = model.module.get_learned_conditioning(data['sentence'])
                 c = model.module.cond_stage_model.encode(data['sentence'])
                 c_cat = [cc.to(device) for cc in c_cat]
-                c_cat = torch.cat(c_cat, dim=1)
+                c_cat = torch.cat(c_cat, dim=1)           
+                uc = model.module.get_learned_conditioning([neg_prompt])
+                c, uc = fix_cond_shapes(model.module, c, uc)
                 cond = {"c_concat": [c_cat], "c_crossattn": [c]}
+                uc = {"c_concat": [c_cat], "c_crossattn": [uc]}
                 # color_map
                 colormap = data['color']
                 #colormap = colormap*2-1.
@@ -375,34 +378,33 @@ if __name__ == '__main__':
             model.zero_grad()
             features_adapter = model_ad(colormap.to(device))
             ### TO DO
-            #l_pixel, loss_dict = model(z, c=cond, features_adapter = features_adapter)
-            #l_pixel.backward()
-            #optimizer.step()
+            l_pixel, loss_dict = model(z, c=cond, features_adapter = features_adapter)
+            l_pixel.backward()
+            optimizer.step()
 
-            #if (current_iter+1)%opt.print_fq == 0:
-            #    logger.info(loss_dict)
+            if (current_iter+1)%opt.print_fq == 0:
+                logger.info(loss_dict)
 
             # save checkpoint
-            #rank, _ = get_dist_info()
-            #if (rank==0) and ((current_iter+1)%config['training']['save_freq'] == 0):
-            #    save_filename = f'model_ad_{current_iter+1}.pth'
-            #    save_path = os.path.join(experiments_root, 'models', save_filename)
-            #    save_dict = {}
-            #    model_ad_bare = get_bare_model(model_ad)
-            #    state_dict = model_ad_bare.state_dict()
-            #    for key, param in state_dict.items():
-            #        if key.startswith('module.'):  # remove unnecessary 'module.'
-            #            key = key[7:]
-            #        save_dict[key] = param.cpu()
-            #    torch.save(save_dict, save_path)
+            rank, _ = get_dist_info()
+            if (rank==0) and ((current_iter+1)%config['training']['save_freq'] == 0):
+                save_filename = f'model_ad_{current_iter+1}.pth'
+                save_path = os.path.join(experiments_root, 'models', save_filename)
+                save_dict = {}
+                model_ad_bare = get_bare_model(model_ad)
+                state_dict = model_ad_bare.state_dict()
+                for key, param in state_dict.items():
+                    if key.startswith('module.'):  # remove unnecessary 'module.'
+                        key = key[7:]
+                    save_dict[key] = param.cpu()
+                torch.save(save_dict, save_path)
             # save state
-            #    state = {'epoch': epoch, 'iter': current_iter+1, 'optimizers': optimizer.state_dict()}
-            #    save_filename = f'{current_iter+1}.state'
-            #    save_path = os.path.join(experiments_root, 'training_states', save_filename)
-            #    torch.save(state, save_path)
+                state = {'epoch': epoch, 'iter': current_iter+1, 'optimizers': optimizer.state_dict()}
+                save_filename = f'{current_iter+1}.state'
+                save_path = os.path.join(experiments_root, 'training_states', save_filename)
+                torch.save(state, save_path)
 
-        # val
-        
+        # val     
         rank, _ = get_dist_info()
         if rank==0:
             for data in val_dataloader:
@@ -426,17 +428,13 @@ if __name__ == '__main__':
                     masked_img = model.module.get_first_stage_encoding(masked_img)
                     c_cat.append(masked_img)
                     # cond
-                    #c = model.module.get_learned_conditioning([data['sentence']])
                     print(data['sentence'])
                     c = model.module.cond_stage_model.encode(data['sentence'])
                     c_cat = [cc.to(device) for cc in c_cat]
                     c_cat = torch.cat(c_cat, dim=1)
                     
-                    neg_prompt = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, ' \
-                          'fewer digits, cropped, worst quality, low quality'
-                    #neg_prompt = ''
+
                     uc = model.module.get_learned_conditioning([neg_prompt])
-                    #uc = model.module.cond_stage_model.encode(neg_prompt)
                     c, uc = fix_cond_shapes(model.module, c, uc)
                     cond = {"c_concat": [c_cat], "c_crossattn": [c]}
                     uc = {"c_concat": [c_cat], "c_crossattn": [uc]}
