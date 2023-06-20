@@ -364,7 +364,9 @@ if __name__ == '__main__':
                 cond = {"c_concat": [c_cat], "c_crossattn": [c]}
                 # color_map
                 colormap = data['color']
-                colormap = colormap*2-1.
+                #colormap = colormap*2-1.
+                #name
+                name = data['name']
 
          
                 
@@ -425,6 +427,7 @@ if __name__ == '__main__':
                     c_cat.append(masked_img)
                     # cond
                     #c = model.module.get_learned_conditioning([data['sentence']])
+                    print(data['sentence'])
                     c = model.module.cond_stage_model.encode(data['sentence'])
                     c_cat = [cc.to(device) for cc in c_cat]
                     c_cat = torch.cat(c_cat, dim=1)
@@ -439,8 +442,10 @@ if __name__ == '__main__':
                     uc = {"c_concat": [c_cat], "c_crossattn": [uc]}
                     # color_map
                     colormap = data['color']
-                    colormap = colormap*2-1.
-                    
+                    #colormap = colormap*2-1.
+                    # name
+                    name = data['name']
+                    name = name[0]
                     model_ad = Adapter_light(channels=[320, 640, 1280, 1280][:4],cin=192, nums_rb=4).to(device)
                     features_adapter = model_ad(colormap.to(device))
                     #print(opt.C, opt.H // opt.f, opt.W // opt.f)
@@ -462,7 +467,7 @@ if __name__ == '__main__':
                     x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).numpy()
                     for id_sample, x_sample in enumerate(x_samples_ddim):
                         x_sample = 255.*x_sample
-                        img = x_sample.astype(np.uint8)
-                        
-                        cv2.imwrite(os.path.join(experiments_root, 'visualization', 'sample_e%04d_s%04d.png'%(epoch, id_sample)), img[:,:,::-1])
+                        img = x_sample.astype(np.uint8)   
+                        img_rgb = cv2.cvtColor(img[:,:,::-1], cv2.COLOR_BGR2RGB)             
+                        cv2.imwrite(os.path.join(experiments_root, 'visualization', str(name)), img_rgb)
                     #break        
