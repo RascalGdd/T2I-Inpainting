@@ -340,37 +340,32 @@ if __name__ == '__main__':
         for _, data in enumerate(train_dataloader):
             current_iter += 1
             with torch.no_grad():
-                c_cat = list()
-                # img
-                data['mask'].to(device)
-                data['color'].to(device)
+                #source_img
+                z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
+                z = model.module.get_first_stage_encoding(z)
                 # mask
-                mask = data['mask']
+                c_cat = list()
+                mask = data['mask'].to(device)
                 mask = mask[None]
                 bchw = [1, 4, 64, 64]
                 mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
                 c_cat.append(mask)
                 # masked_img
-                masked_img = data['masked_img']
-                masked_img = model.module.encode_first_stage((masked_img*2-1.).cuda(non_blocking=True))
+                masked_img = data['masked_img'].to(device)
+                masked_img = model.module.encode_first_stage(masked_img*2-1.)
                 masked_img = model.module.get_first_stage_encoding(masked_img)
                 c_cat.append(masked_img)
-                # cond
-                c = model.module.cond_stage_model.encode(data['sentence'])
                 c_cat = [cc.to(device) for cc in c_cat]
-                c_cat = torch.cat(c_cat, dim=1)           
+                c_cat = torch.cat(c_cat, dim=1) 
+                # txt
+                c = model.module.cond_stage_model.encode(data['sentence'])          
                 uc = model.module.get_learned_conditioning([neg_prompt])
                 c, uc = fix_cond_shapes(model.module, c, uc)
                 cond = {"c_concat": [c_cat], "c_crossattn": [c]}
                 uc = {"c_concat": [c_cat], "c_crossattn": [uc]}
                 # color_map
-                colormap = data['color']
-                #colormap = colormap*2-1.
-                #name
-                name = data['name']
+                colormap = data['color'].to(device) #colormap = colormap*2-1.
 
-         
-                
 
             optimizer.zero_grad()
             model.zero_grad()
@@ -409,11 +404,8 @@ if __name__ == '__main__':
                 with torch.no_grad():
                     sampler = DDIMSampler(model.module)                    
                     c_cat = list()
-                    data['mask'].to(device)
-                    data['color'].to(device)
-
                     # mask
-                    mask = data['mask']
+                    mask = data['mask'].to(device)
                     mask = mask[None]
                     bchw = [1, 4, 64, 64]
                     mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
@@ -428,21 +420,17 @@ if __name__ == '__main__':
                     c = model.module.cond_stage_model.encode(data['sentence'])
                     c_cat = [cc.to(device) for cc in c_cat]
                     c_cat = torch.cat(c_cat, dim=1)
-                    
-
                     uc = model.module.get_learned_conditioning([neg_prompt])
                     c, uc = fix_cond_shapes(model.module, c, uc)
                     cond = {"c_concat": [c_cat], "c_crossattn": [c]}
                     uc = {"c_concat": [c_cat], "c_crossattn": [uc]}
                     # color_map
-                    colormap = data['color']
-                    #colormap = colormap*2-1.
+                    colormap = data['color'].to(device) #colormap = colormap*2-1.
+                    features_adapter = model_ad(colormap)
                     # name
                     name = data['name']
                     name = name[0]
-                    model_ad = Adapter_light(channels=[320, 640, 1280, 1280][:4],cin=192, nums_rb=4).to(device)
-                    features_adapter = model_ad(colormap.to(device))
-                    #print(opt.C, opt.H // opt.f, opt.W // opt.f)
+                    
                     shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
                     samples_ddim, _ = sampler.sample(S=opt.ddim_steps,
                                                         conditioning=cond,
