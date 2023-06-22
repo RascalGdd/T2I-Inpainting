@@ -344,8 +344,6 @@ if __name__ == '__main__':
                 # img
                 data['mask'].to(device)
                 data['color'].to(device)
-                z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
-                z = model.module.get_first_stage_encoding(z)
                 # mask
                 mask = data['mask']
                 mask = mask[None]
@@ -411,11 +409,9 @@ if __name__ == '__main__':
                 with torch.no_grad():
                     sampler = DDIMSampler(model.module)                    
                     c_cat = list()
-                    # img
                     data['mask'].to(device)
                     data['color'].to(device)
-                    z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
-                    z = model.module.get_first_stage_encoding(z)
+
                     # mask
                     mask = data['mask']
                     mask = mask[None]
