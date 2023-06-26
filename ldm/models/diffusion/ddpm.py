@@ -942,7 +942,7 @@ class LatentDiffusion(DDPM):
         gt_blurred = torch.from_numpy(gt_blurred).to(dtype=torch.float32)/127.5-1.0
         gt_blurred = gt_blurred.to(self.device)
         gt_blurred = self.get_first_stage_encoding(self.encode_first_stage(gt_blurred))
-        print(gt_blurred.shape)
+
         model_output_blurred = cv2.cvtColor(model_output_blurred, cv2.COLOR_BGR2RGB)
         model_output_blurred = model_output_blurred[None].transpose(0,3,1,2)
         model_output_blurred = torch.from_numpy(model_output_blurred).to(dtype=torch.float32)/127.5-1.0
@@ -962,9 +962,11 @@ class LatentDiffusion(DDPM):
             raise NotImplementedError()
         
         target = gt_blurred
-        model_output=model_output_blurred
+        self.model_output=model_output_blurred
+
+
         
-        loss_simple = self.get_loss(model_output, target, mean=False).mean([1, 2, 3])
+        loss_simple = self.get_loss(self.model_output, target, mean=False).mean([1, 2, 3])
         loss_dict.update({f'{prefix}/loss_simple': loss_simple.mean()})
 
         logvar_t = self.logvar[t].to(self.device)
@@ -976,12 +978,13 @@ class LatentDiffusion(DDPM):
 
         loss = self.l_simple_weight * loss.mean()
 
-        loss_vlb = self.get_loss(model_output, target, mean=False).mean(dim=(1, 2, 3))
+        loss_vlb = self.get_loss(self.model_output, target, mean=False).mean(dim=(1, 2, 3))
         loss_vlb = (self.lvlb_weights[t] * loss_vlb).mean()
         loss_dict.update({f'{prefix}/loss_vlb': loss_vlb})
         loss += (self.original_elbo_weight * loss_vlb)
         loss_dict.update({f'{prefix}/loss': loss})
-
+        
+        loss.requires_grad_(True)        
         return loss, loss_dict
 
     def p_mean_variance(self, x, c, t, clip_denoised: bool, return_codebook_ids=False, quantize_denoised=False,
