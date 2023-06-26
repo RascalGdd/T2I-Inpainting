@@ -7,6 +7,7 @@ https://github.com/CompVis/taming-transformers
 """
 
 import torch
+import cv2
 import torch.nn as nn
 import numpy as np
 import pytorch_lightning as pl
@@ -19,14 +20,18 @@ from tqdm import tqdm
 from torchvision.utils import make_grid
 from pytorch_lightning.utilities.distributed import rank_zero_only
 from omegaconf import ListConfig
-
+import PIL.Image as Image
 from ldm.util import log_txt_as_img, exists, default, ismap, isimage, mean_flat, count_params, instantiate_from_config
 from ldm.modules.ema import LitEma
 from ldm.modules.distributions.distributions import normal_kl, DiagonalGaussianDistribution
 from ldm.models.autoencoder import IdentityFirstStage, AutoencoderKL
 from ldm.modules.diffusionmodules.util import make_beta_schedule, extract_into_tensor, noise_like
 from ldm.models.diffusion.ddim import DDIMSampler
-
+import argparse
+from ldm.modules.extra_condition import api
+from ldm.modules.extra_condition.api import (ExtraCondition, get_adapter_feature, get_cond_model)
+from basicsr.utils import (get_env_info, get_root_logger, get_time_str,
+                           img2tensor, scandir, tensor2img)
 
 __conditioning_keys__ = {'concat': 'c_concat',
                          'crossattn': 'c_crossattn',
@@ -378,10 +383,10 @@ class DDPM(pl.LightningModule):
         return loss
 
     def p_losses(self, x_start, t, noise=None):
-        noise = default(noise, lambda: torch.randn_like(x_start))
+        noise = default(noise, lambda: torch.randn_like(x_start)) #gt_noise
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        model_out = self.model(x_noisy, t)
-
+        model_out = self.model(x_noisy, t) #pred_noise
+        
         loss_dict = {}
         if self.parameterization == "eps":
             target = noise
@@ -391,7 +396,7 @@ class DDPM(pl.LightningModule):
             target = self.get_v(x_start, noise, t)
         else:
             raise NotImplementedError(f"Parameterization {self.parameterization} not yet supported")
-
+    
         loss = self.get_loss(model_out, target, mean=False).mean(dim=[1, 2, 3])
 
         log_prefix = 'train' if self.training else 'val'
@@ -865,10 +870,85 @@ class LatentDiffusion(DDPM):
         return mean_flat(kl_prior) / np.log(2.0)
 
     def p_losses(self, x_start, cond, t, noise=None, **kwargs):
-        noise = default(noise, lambda: torch.randn_like(x_start))
+        noise = default(noise, lambda: torch.randn_like(x_start)) #gt_noise[1, 4, 64, 64]
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        model_output = self.apply_model(x_noisy, t, cond, **kwargs)
+        model_output = self.apply_model(x_noisy, t, cond, **kwargs) #pred_noise[1, 4, 64, 64]
+        #################################
+        
+        #mask
+        original_shape = (1,1,512, 512)
+        mask = cond["c_concat"][0][:, 0:1, :, :]#[1, 1, 64, 64]
+        mask = torch.nn.functional.interpolate(mask, size=original_shape[-2:])
+        mask = torch.squeeze(mask)
+        mask = mask.cpu().numpy()
+        mask = (mask * 255).astype('uint8')
+        mask = Image.fromarray(mask, mode='L')
+        mask = np.array(mask)
+        
+        #gt
+        gt = self.decode_first_stage(x_start)
+        gt = torch.clamp((gt + 1.0) / 2.0, min=0.0, max=1.0)
+        gt = torch.squeeze(gt)
+        gt = gt.cpu().numpy().transpose(1,2,0)  
+        gt = (gt *255).astype(np.uint8)
+        gt = Image.fromarray(gt)
+        gt = np.array(gt)
 
+        #ouput
+        model_output = noise + x_start - model_output 
+        model_output = self.decode_first_stage(model_output)
+        model_output = torch.clamp((model_output + 1.0) / 2.0, min=0.0, max=1.0)
+        model_output = torch.squeeze(model_output)
+        model_output = model_output.cpu().numpy().transpose(1,2,0)  
+        model_output = (model_output *255).astype(np.uint8)
+        model_output = Image.fromarray(model_output)
+        model_output = np.array(model_output)
+
+        # crop
+        nonzero_pixels = np.nonzero(mask)
+        min_x = np.min(nonzero_pixels[1])
+        max_x = np.max(nonzero_pixels[1])
+        min_y = np.min(nonzero_pixels[0])
+        max_y = np.max(nonzero_pixels[0])
+        H=max_y-min_y
+        W=max_x-min_x
+        min_length = min(H,W)
+        k_size = int(min_length*0.3)+1
+        if k_size % 2 == 0:
+            k_size -= 1         
+        
+        "1.gt_colormap" 
+        cropped = gt[min_y:max_y,min_x:max_x,:]
+        gt_blurred = gt       
+        blurred = cv2.GaussianBlur(cropped, (k_size, k_size), 0)
+        gt_blurred[min_y:max_y,min_x:max_x,:] = blurred
+        #cv2.imwrite('/cluster/work/cvl/denfan/diandian/control/T2I-COD/test_images/gt_blurred.jpg',gt_blurred)
+        
+        
+        "2.ouput_colormap"
+        cropped = model_output[min_y:max_y,min_x:max_x,:]
+        model_output_blurred = model_output
+        blurred = cv2.GaussianBlur(cropped, (k_size, k_size), 0)
+        model_output_blurred[min_y:max_y,min_x:max_x,:] = blurred       
+        #cv2.imwrite('/cluster/work/cvl/denfan/diandian/control/T2I-COD/test_images/model_output_blurred.jpg',model_output_blurred)
+
+        
+        #################################
+        
+        #loss: 
+        #gt_blurred, model_output_blurred [1, 4, 64, 64]
+        gt_blurred = cv2.cvtColor(gt_blurred, cv2.COLOR_BGR2RGB)
+        gt_blurred = gt_blurred[None].transpose(0,3,1,2)
+        gt_blurred = torch.from_numpy(gt_blurred).to(dtype=torch.float32)/127.5-1.0
+        gt_blurred = gt_blurred.to(self.device)
+        gt_blurred = self.get_first_stage_encoding(self.encode_first_stage(gt_blurred))
+        print(gt_blurred.shape)
+        model_output_blurred = cv2.cvtColor(model_output_blurred, cv2.COLOR_BGR2RGB)
+        model_output_blurred = model_output_blurred[None].transpose(0,3,1,2)
+        model_output_blurred = torch.from_numpy(model_output_blurred).to(dtype=torch.float32)/127.5-1.0
+        model_output_blurred = model_output_blurred.to(self.device)
+        model_output_blurred = self.get_first_stage_encoding(self.encode_first_stage(model_output_blurred))
+        
         loss_dict = {}
         prefix = 'train' if self.training else 'val'
 
@@ -880,7 +960,10 @@ class LatentDiffusion(DDPM):
             target = self.get_v(x_start, noise, t)
         else:
             raise NotImplementedError()
-
+        
+        target = gt_blurred
+        model_output=model_output_blurred
+        
         loss_simple = self.get_loss(model_output, target, mean=False).mean([1, 2, 3])
         loss_dict.update({f'{prefix}/loss_simple': loss_simple.mean()})
 
@@ -1315,6 +1398,7 @@ class DiffusionWrapper(pl.LightningModule):
         elif self.conditioning_key == 'hybrid':
             xc = torch.cat([x] + c_concat, dim=1)
             cc = torch.cat(c_crossattn, 1)
+            #print("xc.dtype, cc.dtype: ",xc.dtype, cc.dtype)
             out = self.diffusion_model(xc, t, context=cc, **kwargs)
         elif self.conditioning_key == 'hybrid-adm':
             assert c_adm is not None
