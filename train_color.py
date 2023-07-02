@@ -3,7 +3,7 @@ import logging
 import os
 import os.path as osp
 import time
-
+import random
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -26,7 +26,7 @@ from ldm.inference_base import (diffusion_inference, get_adapters, get_base_argu
 from ldm.modules.extra_condition import api
 from ldm.modules.extra_condition.api import (ExtraCondition, get_adapter_feature, get_cond_model)
 from ldm.util import fix_cond_shapes, load_model_from_config, read_state_dict
-
+from pytorch_lightning import seed_everything
 #def load_model_from_config(config, ckpt, verbose=False):
 #     print(f"Loading model from {ckpt}")
 #     #########################################
@@ -97,7 +97,7 @@ parser.add_argument(
     "--epochs",
     type=int,
     #default=10000,
-    default=1,
+    default=500,
     help="the prompt to render"
 )
 parser.add_argument(
@@ -227,8 +227,8 @@ opt.style_cond_tau=1.0
 
 if __name__ == '__main__':
     config = OmegaConf.load(f"{opt.config}")
-    #opt.name = config['name']
     opt.name = 'train_color'
+    #opt.name = 'train_color_latent'
     
     os.environ['RANK']='0'
     os.environ['WORLD_SIZE']='1'
@@ -248,19 +248,19 @@ if __name__ == '__main__':
     #path_json_val = '/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/testjson_dict.json'
     
     ###################
-    path_json_train = '/cluster/work/cvl/denfan/diandian/control/inpainting/short.json'
-    path_json_val = '/cluster/work/cvl/denfan/diandian/control/inpainting/short.json'
+    path_json_train = '/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/testjson_dict.json'
+    path_json_val = '/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/short.json'
     ###################
     
     train_dataset = dataset_cod_mask_color(path_json_train,
-    root_path_im='/cluster/scratch/denfan/inpainting_stable/background_short',
+    root_path_im='/cluster/scratch/denfan/inpainting_stable/background',
     root_path_mask='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_mask',
     root_path_color='/cluster/scratch/denfan/inpainting_stable/colormap',
     image_size=512
     )
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     val_dataset = dataset_cod_mask_color(path_json_val,
-    root_path_im='/cluster/scratch/denfan/inpainting_stable/background_short',
+    root_path_im='/cluster/scratch/denfan/inpainting_stable/background',
     root_path_mask='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_mask',
     root_path_color='/cluster/scratch/denfan/inpainting_stable/colormap',
     image_size=512
@@ -334,12 +334,20 @@ if __name__ == '__main__':
 
     # training
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
+    seed_list= list()
+    
     for epoch in range(start_epoch, opt.epochs):
+        #seed
+        seed=random.randint(0, 10000)
+        seed_everything(seed)
+        seed_list.append(seed)
         train_dataloader.sampler.set_epoch(epoch)
         # train
         for _, data in enumerate(train_dataloader):
             current_iter += 1
             with torch.no_grad():
+                #filename
+                filename=data['name']
                 #source_img
                 z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
                 z = model.module.get_first_stage_encoding(z)
@@ -400,6 +408,7 @@ if __name__ == '__main__':
         # val     
         rank, _ = get_dist_info()
         if rank==0:
+            seed_everything(42)
             for data in val_dataloader:
                 with torch.no_grad():
                     sampler = DDIMSampler(model.module)                    
@@ -416,7 +425,7 @@ if __name__ == '__main__':
                     masked_img = model.module.get_first_stage_encoding(masked_img)
                     c_cat.append(masked_img)
                     # cond
-                    print(data['sentence'])
+                    #print(data['sentence'])
                     c = model.module.cond_stage_model.encode(data['sentence'])
                     c_cat = [cc.to(device) for cc in c_cat]
                     c_cat = torch.cat(c_cat, dim=1)
@@ -453,3 +462,5 @@ if __name__ == '__main__':
                         img_rgb = cv2.cvtColor(img[:,:,::-1], cv2.COLOR_BGR2RGB)             
                         cv2.imwrite(os.path.join(experiments_root, 'visualization', str(name)), img_rgb)
                     #break        
+    with open('seed_train.json', 'a') as f:
+        json.dump(seed_list, f)
