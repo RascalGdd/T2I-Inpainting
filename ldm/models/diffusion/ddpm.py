@@ -8,9 +8,9 @@ https://github.com/CompVis/taming-transformers
 
 import torch
 import cv2
+import random
 import torch.nn as nn
 import numpy as np
-import random
 import pytorch_lightning as pl
 from torch.optim.lr_scheduler import LambdaLR
 from einops import rearrange, repeat
@@ -874,117 +874,19 @@ class LatentDiffusion(DDPM):
         noise = default(noise, lambda: torch.randn_like(x_start)) #gt_noise[1, 4, 64, 64]
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
         model_output = self.apply_model(x_noisy, t, cond, **kwargs) #pred_noise[1, 4, 64, 64]
-        #################################
-           
-        # mask
         
-        #mask_dir='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_mask'
-        #mask_path = os.path.join(mask_dir,filename.replace('jpg','png'))
-        #mask = cv2.imread(mask_path)
-        #cv2.imwrite('/cluster/work/cvl/denfan/diandian/control/T2I-COD/test_images/mask.png', mask)     
-        
+        ###################
         filename = str(random.randint(0, 10000))
-        
-        original_shape = (1,1,512, 512)
-        mask = cond["c_concat"][0][:, 0:1, :, :]#[1, 1, 64, 64]
-        mask = torch.nn.functional.interpolate(mask, size=original_shape[-2:])
-        mask = torch.squeeze(mask)
-        mask = mask.cpu().numpy()
-        mask = (mask * 255).astype('uint8')
-        mask = Image.fromarray(mask, mode='L')
-        mask = np.array(mask)
-        
-        #source
-        source = cond["c_concat"][0][:, 1:5, :, :]#[1, 4, 64, 64]
-        source = self.decode_first_stage(source)
-        source = torch.clamp((source + 1.0) / 2.0, min=0.0, max=1.0)
-        source = torch.squeeze(source)
-        source = source.cpu().numpy().transpose(1,2,0)  
-        source = (source *255).astype(np.uint8)
-        source = Image.fromarray(source)
-        source = np.array(source)
-        
-        #gt
-        gt = self.decode_first_stage(x_start)
-        gt = torch.clamp((gt + 1.0) / 2.0, min=0.0, max=1.0)
-        gt = torch.squeeze(gt)
-        gt = gt.cpu().numpy().transpose(1,2,0)  
-        gt = (gt *255).astype(np.uint8)
-        gt = Image.fromarray(gt)
-        gt = np.array(gt)
-
-        #ouput
-        model_output = self.predict_start_from_noise(x_noisy, t=t, noise=model_output)
-        model_output = self.decode_first_stage(model_output)
-        model_output = torch.clamp((model_output + 1.0) / 2.0, min=0.0, max=1.0)
-        model_output = torch.squeeze(model_output)
-        model_output = model_output.cpu().numpy().transpose(1,2,0)  
-        model_output = (model_output *255).astype(np.uint8)
-        model_output = Image.fromarray(model_output)
-        model_output = np.array(model_output)
-        cv2.imwrite('/cluster/scratch/denfan/inpainting_stable/test_img/output_'+filename+'.jpg', model_output)
-        # crop
-        nonzero_pixels = np.nonzero(mask)
-        if len(nonzero_pixels[0]) == 0:
-            min_x =0 
-            max_x =512         
-            min_y =0 
-            max_y =512  
-        else:
-            min_x = np.min(nonzero_pixels[1])
-            max_x = np.max(nonzero_pixels[1])
-            min_y = np.min(nonzero_pixels[0])
-            max_y = np.max(nonzero_pixels[0])
-        H=max_y-min_y
-        W=max_x-min_x
-        min_length = min(H,W)
-        k_size = int(min_length*0.3)+1
-        if k_size % 2 == 0:
-            k_size -= 1         
-        
-        "1.colormap" 
-        cropped = gt[min_y:max_y,min_x:max_x,:]
-        gt_blurred = gt       
-        blurred = cv2.GaussianBlur(cropped, (k_size, k_size), 0)
-        gt_blurred[min_y:max_y,min_x:max_x,:] = blurred
-
-        cropped = model_output[min_y:max_y,min_x:max_x,:]
-        model_output_blurred = model_output
-        blurred = cv2.GaussianBlur(cropped, (k_size, k_size), 0)
-        model_output_blurred[min_y:max_y,min_x:max_x,:] = blurred   
-              
-        "2.canny"       
-        #gt_canny = cv2.Canny(result, 100, 200)
-        #model_output_canny = cv2.Canny(model_output, 100, 200)
-
-        #gt_canny = np.bitwise_and(gt_canny, mask)    
-        #model_output_canny = np.bitwise_and(model_output_canny, mask)  
-        #cv2.imwrite('/cluster/work/cvl/denfan/diandian/control/T2I-COD/test_images/gt_canny.jpg', gt_canny)     
-        #cv2.imwrite('/cluster/work/cvl/denfan/diandian/control/T2I-COD/test_images/model_output_canny.jpg', model_output_canny) 
-        
-        
-        #################################        
-                
-        #pixel_loss: 
-        #[1, 3, 512, 512]
-        gt_blurred = cv2.bitwise_and(gt_blurred, gt_blurred, mask=mask)
-        gt_blurred = cv2.cvtColor(gt_blurred, cv2.COLOR_BGR2RGB)
-        cv2.imwrite('/cluster/scratch/denfan/inpainting_stable/test_img/gt_blurred_'+filename+'.jpg', gt_blurred) 
-        gt_blurred = gt_blurred[None].transpose(0,3,1,2)
-        gt_blurred = torch.from_numpy(gt_blurred).to(dtype=torch.float32)/127.5-1.0
-        #gt_blurred = torch.from_numpy(gt_blurred).to(dtype=torch.float32)
-        gt_blurred = gt_blurred.to(self.device)
-
-
-        model_output_blurred = cv2.bitwise_and(model_output_blurred, model_output_blurred, mask=mask)
-        model_output_blurred = cv2.cvtColor(model_output_blurred, cv2.COLOR_BGR2RGB)
-        cv2.imwrite('/cluster/scratch/denfan/inpainting_stable/test_img/output_blurred_'+filename+'.jpg', model_output_blurred)
-        
-        model_output_blurred = model_output_blurred[None].transpose(0,3,1,2)
-        model_output_blurred = torch.from_numpy(model_output_blurred).to(dtype=torch.float32)/127.5-1.0
-        #model_output_blurred = torch.from_numpy(model_output_blurred).to(dtype=torch.float32)
-        model_output_blurred = model_output_blurred.to(self.device)
-
+        model_output_img = self.predict_start_from_noise(x_noisy, t=t, noise=model_output)
+        model_output_img = self.decode_first_stage(model_output_img)
+        model_output_img = torch.clamp((model_output_img + 1.0) / 2.0, min=0.0, max=1.0)
+        model_output_img = torch.squeeze(model_output_img)
+        model_output_img = model_output_img.cpu().numpy().transpose(1,2,0)  
+        model_output_img = (model_output_img *255).astype(np.uint8)
+        model_output_img = Image.fromarray(model_output_img)
+        model_output_img = np.array(model_output_img)
+        #cv2.imwrite('/cluster/scratch/denfan/inpainting_stable/test_img_one/'+filename+'.jpg', model_output_img)
+        ###################
         
         loss_dict = {}
         prefix = 'train' if self.training else 'val'
@@ -997,13 +899,8 @@ class LatentDiffusion(DDPM):
             target = self.get_v(x_start, noise, t)
         else:
             raise NotImplementedError()
-        
-        target = gt_blurred
-        self.model_output=model_output_blurred
-
-
-        
-        loss_simple = self.get_loss(self.model_output, target, mean=False).mean([1, 2, 3])
+                
+        loss_simple = self.get_loss(model_output, target, mean=False).mean([1, 2, 3])
         loss_dict.update({f'{prefix}/loss_simple': loss_simple.mean()})
 
         logvar_t = self.logvar[t].to(self.device)
@@ -1015,13 +912,13 @@ class LatentDiffusion(DDPM):
 
         loss = self.l_simple_weight * loss.mean()
 
-        loss_vlb = self.get_loss(self.model_output, target, mean=False).mean(dim=(1, 2, 3))
+        loss_vlb = self.get_loss(model_output, target, mean=False).mean(dim=(1, 2, 3))
         loss_vlb = (self.lvlb_weights[t] * loss_vlb).mean()
         loss_dict.update({f'{prefix}/loss_vlb': loss_vlb})
         loss += (self.original_elbo_weight * loss_vlb)
         loss_dict.update({f'{prefix}/loss': loss})
         
-        loss.requires_grad_(True)        
+        #loss.requires_grad_(True)        
         return loss, loss_dict
 
     def p_mean_variance(self, x, c, t, clip_denoised: bool, return_codebook_ids=False, quantize_denoised=False,
