@@ -27,26 +27,7 @@ from ldm.modules.extra_condition import api
 from ldm.modules.extra_condition.api import (ExtraCondition, get_adapter_feature, get_cond_model)
 from ldm.util import fix_cond_shapes, load_model_from_config, read_state_dict
 from pytorch_lightning import seed_everything
-#def load_model_from_config(config, ckpt, verbose=False):
-#     print(f"Loading model from {ckpt}")
-#     #########################################
-#     pl_sd = torch.load(ckpt, map_location="cpu")
-#     if "global_step" in pl_sd:
-#         print(f"Global Step: {pl_sd['global_step']}")
-#     sd = pl_sd["state_dict"]
-#     #########################################
-#     model = instantiate_from_config(config.model)
-#     m, u = model.load_state_dict(sd, strict=False)
-#     if len(m) > 0 and verbose:
-#         print("missing keys:")
-#         print(m)
-#     if len(u) > 0 and verbose:
-#         print("unexpected keys:")
-#         print(u)
-# 
-#     model.cuda()
-#     model.eval()
-#     return model
+
 
 @master_only
 def mkdir_and_rename(path):
@@ -97,7 +78,7 @@ parser.add_argument(
     "--epochs",
     type=int,
     #default=10000,
-    default=500,
+    default=5000,
     help="the prompt to render"
 )
 parser.add_argument(
@@ -227,8 +208,9 @@ opt.style_cond_tau=1.0
 
 if __name__ == '__main__':
     config = OmegaConf.load(f"{opt.config}")
-    opt.name = 'train_color'
-    #opt.name = 'train_color_latent'
+    #opt.name = 'train_color'#with color_map
+    #opt.name = 'train_color_blurred'#with blur_img
+    opt.name = 'train_color_pixel'#with mask
     
     os.environ['RANK']='0'
     os.environ['WORLD_SIZE']='1'
@@ -240,29 +222,25 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = True
     device='cuda'
     torch.cuda.set_device(opt.local_rank)
-
     # dataset
-
-
-    #path_json_train = '/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/testjson_dict.json'
-    #path_json_val = '/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/testjson_dict.json'
-    
-    ###################
     path_json_train = '/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/testjson_dict.json'
     path_json_val = '/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/short.json'
-    ###################
     
     train_dataset = dataset_cod_mask_color(path_json_train,
-    root_path_im='/cluster/scratch/denfan/inpainting_stable/background',
+    root_path_im='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_target',
+    #root_path_im='/cluster/scratch/denfan/inpainting_stable/background',
     root_path_mask='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_mask',
-    root_path_color='/cluster/scratch/denfan/inpainting_stable/colormap',
+    #root_path_color='/cluster/scratch/denfan/inpainting_stable/colormap',
+    root_path_color='/cluster/scratch/denfan/inpainting_stable/blurred',
     image_size=512
     )
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     val_dataset = dataset_cod_mask_color(path_json_val,
-    root_path_im='/cluster/scratch/denfan/inpainting_stable/background',
+    root_path_im='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_target',
+    #root_path_im='/cluster/scratch/denfan/inpainting_stable/background',
     root_path_mask='/cluster/work/cvl/denfan/diandian/control/inpainting/datasets/camo_diff_512/camo_mask',
-    root_path_color='/cluster/scratch/denfan/inpainting_stable/colormap',
+    #root_path_color='/cluster/scratch/denfan/inpainting_stable/colormap',
+    root_path_color='/cluster/scratch/denfan/inpainting_stable/blurred',
     image_size=512
     )
     train_dataloader = torch.utils.data.DataLoader(
@@ -280,11 +258,28 @@ if __name__ == '__main__':
             pin_memory=False)
 
     # inpainting
-    #model = load_model_from_config(config, f"{opt.ckpt}").to(device)
     model = load_model_from_config(config, opt.ckpt, opt.vae_ckpt).to(opt.device)
 
-    # ad encoder
-    model_ad = Adapter_light(channels=[320, 640, 1280, 1280][:4],cin=192, nums_rb=4).to(device)
+    # t2i encoder
+    model_ad = Adapter_light(channels=[320, 640, 1280, 1280][:4],cin=192, nums_rb=4).to(device)    
+    
+    # load weight
+    
+    # ckpt_path = 'models/t2iadapter_color_sd14v1.pth'
+    # state_dict = read_state_dict(ckpt_path)
+    # new_state_dict = {}
+    # for k, v in state_dict.items():
+    #     if k.startswith('adapter.'):
+    #         new_state_dict[k[len('adapter.'):]] = v
+    #     else:
+    #         new_state_dict[k] = v
+    # 
+    # model_ad.load_state_dict(new_state_dict)
+
+    
+    adapter = {}
+    adapter['model'] = model_ad
+    adapter['cond_weight'] = 1.0
 
     # to gpus
     model_ad = torch.nn.parallel.DistributedDataParallel(
@@ -334,11 +329,11 @@ if __name__ == '__main__':
 
     # training
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
-    seed_list= list()
-    
+    seed_list = list()
+
     for epoch in range(start_epoch, opt.epochs):
-        #seed
-        seed=random.randint(0, 10000)
+        # seed
+        seed = random.randint(0, 10000)
         seed_everything(seed)
         seed_list.append(seed)
         train_dataloader.sampler.set_epoch(epoch)
@@ -346,50 +341,49 @@ if __name__ == '__main__':
         for _, data in enumerate(train_dataloader):
             current_iter += 1
             with torch.no_grad():
-                #filename
-                filename=data['name']
-                #source_img
-                z = model.module.encode_first_stage((data['im']*2-1.).cuda(non_blocking=True))
+                # filename
+                filename = data['name']
+                # source_img
+                z = model.module.encode_first_stage((data['im']).cuda(non_blocking=True))
                 z = model.module.get_first_stage_encoding(z)
                 # mask
                 c_cat = list()
                 mask = data['mask'].to(device)
-                mask = mask[None]
                 bchw = [1, 4, 64, 64]
                 mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
                 c_cat.append(mask)
                 # masked_img
                 masked_img = data['masked_img'].to(device)
-                masked_img = model.module.encode_first_stage(masked_img*2-1.)
+                masked_img = model.module.encode_first_stage(masked_img)
                 masked_img = model.module.get_first_stage_encoding(masked_img)
                 c_cat.append(masked_img)
                 c_cat = [cc.to(device) for cc in c_cat]
-                c_cat = torch.cat(c_cat, dim=1) 
+                c_cat = torch.cat(c_cat, dim=1)
                 # txt
-                c = model.module.cond_stage_model.encode(data['sentence'])          
+                c = model.module.cond_stage_model.encode(data['sentence'])
                 uc = model.module.get_learned_conditioning([neg_prompt])
                 c, uc = fix_cond_shapes(model.module, c, uc)
                 cond = {"c_concat": [c_cat], "c_crossattn": [c]}
                 uc = {"c_concat": [c_cat], "c_crossattn": [uc]}
                 # color_map
-                colormap = data['color'].to(device) #colormap = colormap*2-1.
-
+                colormap = data['color'].to(device)
 
             optimizer.zero_grad()
             model.zero_grad()
-            features_adapter = model_ad(colormap.to(device))
+            features_adapter, append_to_context = get_adapter_feature(colormap, adapter)
+
             ### TO DO
-            l_pixel, loss_dict = model(z, c=cond, features_adapter = features_adapter)
+            l_pixel, loss_dict = model(z, c=cond, features_adapter=features_adapter)
             l_pixel.backward()
             optimizer.step()
 
-            if (current_iter+1)%opt.print_fq == 0:
+            if (current_iter + 1) % opt.print_fq == 0:
                 logger.info(loss_dict)
 
             # save checkpoint
             rank, _ = get_dist_info()
-            if (rank==0) and ((current_iter+1)%config['training']['save_freq'] == 0):
-                save_filename = f'model_ad_{current_iter+1}.pth'
+            if (rank == 0) and ((current_iter + 1) % config['training']['save_freq'] == 0):
+                save_filename = f'model_ad_{current_iter + 1}.pth'
                 save_path = os.path.join(experiments_root, 'models', save_filename)
                 save_dict = {}
                 model_ad_bare = get_bare_model(model_ad)
@@ -399,33 +393,32 @@ if __name__ == '__main__':
                         key = key[7:]
                     save_dict[key] = param.cpu()
                 torch.save(save_dict, save_path)
-            # save state
-                state = {'epoch': epoch, 'iter': current_iter+1, 'optimizers': optimizer.state_dict()}
-                save_filename = f'{current_iter+1}.state'
+                # save state
+                state = {'epoch': epoch, 'iter': current_iter + 1, 'optimizers': optimizer.state_dict()}
+                save_filename = f'{current_iter + 1}.state'
                 save_path = os.path.join(experiments_root, 'training_states', save_filename)
                 torch.save(state, save_path)
 
         # val     
         rank, _ = get_dist_info()
-        if rank==0:
+        if rank == 0:
             seed_everything(42)
             for data in val_dataloader:
                 with torch.no_grad():
-                    sampler = DDIMSampler(model.module)                    
+                    sampler = DDIMSampler(model.module)
                     c_cat = list()
                     # mask
                     mask = data['mask'].to(device)
-                    mask = mask[None]
                     bchw = [1, 4, 64, 64]
                     mask = torch.nn.functional.interpolate(mask, size=bchw[-2:])
                     c_cat.append(mask)
                     # masked_img
                     masked_img = data['masked_img']
-                    masked_img = model.module.encode_first_stage((masked_img*2-1.).cuda(non_blocking=True))
+                    masked_img = model.module.encode_first_stage((masked_img).cuda(non_blocking=True))
                     masked_img = model.module.get_first_stage_encoding(masked_img)
                     c_cat.append(masked_img)
                     # cond
-                    #print(data['sentence'])
+                    # print(data['sentence'])
                     c = model.module.cond_stage_model.encode(data['sentence'])
                     c_cat = [cc.to(device) for cc in c_cat]
                     c_cat = torch.cat(c_cat, dim=1)
@@ -434,33 +427,39 @@ if __name__ == '__main__':
                     cond = {"c_concat": [c_cat], "c_crossattn": [c]}
                     uc = {"c_concat": [c_cat], "c_crossattn": [uc]}
                     # color_map
-                    colormap = data['color'].to(device) #colormap = colormap*2-1.
-                    features_adapter = model_ad(colormap)
+                    colormap = data['color'].to(device)
+                    features_adapter, append_to_context = get_adapter_feature(colormap, adapter)
+                    
+
+                    #print(features_adapter)
+                    
                     # name
                     name = data['name']
                     name = name[0]
-                    
+        
                     shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
                     samples_ddim, _ = sampler.sample(S=opt.ddim_steps,
-                                                        conditioning=cond,
-                                                        batch_size=opt.n_samples,
-                                                        shape=shape,
-                                                        verbose=False,
-                                                        unconditional_guidance_scale=opt.scale,
-                                                        unconditional_conditioning=uc,
-                                                        x_T=None,
-                                                        features_adapter=features_adapter,
-                                                        append_to_context=None,
-                                                        cond_tau=opt.cond_tau,
-                                                        style_cond_tau=opt.style_cond_tau,)
+                                                     conditioning=cond,
+                                                     batch_size=opt.n_samples,
+                                                     shape=shape,
+                                                     verbose=False,
+                                                     unconditional_guidance_scale=opt.scale,
+                                                     unconditional_conditioning=uc,
+                                                     x_T=None,
+                                                     features_adapter=features_adapter,
+                                                     append_to_context=append_to_context,
+                                                     cond_tau=opt.cond_tau,
+                                                     style_cond_tau=opt.style_cond_tau, )
                     x_samples_ddim = model.module.decode_first_stage(samples_ddim)
                     x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
                     x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).numpy()
-                    for id_sample, x_sample in enumerate(x_samples_ddim):
-                        x_sample = 255.*x_sample
-                        img = x_sample.astype(np.uint8)   
-                        img_rgb = cv2.cvtColor(img[:,:,::-1], cv2.COLOR_BGR2RGB)             
-                        cv2.imwrite(os.path.join(experiments_root, 'visualization', str(name)), img_rgb)
-                    #break        
-    with open('seed_train.json', 'a') as f:
-        json.dump(seed_list, f)
+                    for v_idx in range(opt.n_samples):
+                        result = x_samples_ddim*255
+                        result = [Image.fromarray(img.astype(np.uint8)) for img in result]
+                        result = result[0]
+                        result = result.convert("RGB")
+                        result.save(os.path.join(experiments_root, 'visualization', str(name)))
+            break
+                        
+    #with open('seed_train.json', 'a') as f:
+        #json.dump(seed_list, f)
