@@ -5,7 +5,8 @@ import torch.nn.functional as F
 from torch import nn, einsum
 from einops import rearrange, repeat
 from typing import Optional, Any
-
+import numpy as np
+import matplotlib.pyplot as plt
 from ldm.modules.diffusionmodules.util import checkpoint
 
 
@@ -164,8 +165,8 @@ class CrossAttention(nn.Module):
             nn.Dropout(dropout)
         )
 
-    def forward(self, x, context=None, mask=None):
-        h = self.heads
+    def forward(self, x, context=None, mask=None,attention_map=False):
+        h = self.heads# 8
 
         q = self.to_q(x)
         context = default(context, x)
@@ -173,11 +174,13 @@ class CrossAttention(nn.Module):
         v = self.to_v(context)
 
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
+        #q,k,v [16, 4096, 40]
 
         # force cast to fp32 to avoid overflowing
         if _ATTN_PRECISION =="fp32":
             with torch.autocast(enabled=False, device_type = 'cuda'):
                 q, k = q.float(), k.float()
+                #print("q, k: ",q.shape, k.shape)
                 sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
         else:
             sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
@@ -191,10 +194,40 @@ class CrossAttention(nn.Module):
             sim.masked_fill_(~mask, max_neg_value)
 
         # attention, what we cannot get enough of
-        sim = sim.softmax(dim=-1)
+        sim_softmax = sim.softmax(dim=-1)#[16, 4096, 4096]
+        ##################
+        "----------visualization-------------"
+        if attention_map:
+            map_sim = torch.sum(sim, dim=0)#[4096, 4096]
+            map_sim = sim[0, :, :]
+            map_sim = torch.sum(map_sim, dim=1)#[4096]
+            #map_sim = map_sim[0, :]
+            map_sim = map_sim.reshape(64, 64)#[64,64]
+            map_sim = map_sim.softmax(dim=-1)
+            print(map_sim)
+            
+            
+            map_sim = map_sim.cpu()
+            normalized_map_sim=map_sim.numpy()
+            plt.imshow(normalized_map_sim, cmap='hot', interpolation='nearest')
+            plt.colorbar()
+            plt.savefig('/cluster/work/cvl/denfan/diandian/control/T2I-COD/test_images/heatmap_latent.jpg')
+            
+            
+            # decode
+            #gt = self.decode_first_stage(x_start)
+            #gt = torch.clamp((gt + 1.0) / 2.0, min=0.0, max=1.0)
+            #gt = torch.squeeze(gt)
+            #gt = gt.cpu().numpy().transpose(1,2,0)  
+            #gt = (gt *255).astype(np.uint8)
+            #gt = Image.fromarray(gt)
+            #gt = np.array(gt)
+            
+            
+        ##################
+        out = einsum('b i j, b j d -> b i d', sim_softmax, v)
+        out = rearrange(out, '(b h) n d -> b n (h d)', h=h)#[2, 4096, 320]
 
-        out = einsum('b i j, b j d -> b i d', sim, v)
-        out = rearrange(out, '(b h) n d -> b n (h d)', h=h)
         return self.to_out(out)
 
 
@@ -258,6 +291,7 @@ class BasicTransformerBlock(nn.Module):
         attn_mode = "softmax-xformers" if XFORMERS_IS_AVAILBLE else "softmax"
         assert attn_mode in self.ATTENTION_MODES
         attn_cls = self.ATTENTION_MODES[attn_mode]
+
         self.disable_self_attn = disable_self_attn
         self.attn1 = attn_cls(query_dim=dim, heads=n_heads, dim_head=d_head, dropout=dropout,
                               context_dim=context_dim if self.disable_self_attn else None)  # is a self-attention if not self.disable_self_attn
