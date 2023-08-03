@@ -876,15 +876,15 @@ class LatentDiffusion(DDPM):
         model_output = self.apply_model(x_noisy, t, cond, **kwargs) #pred_noise[1, 4, 64, 64]
         
         ###################
-        filename = str(random.randint(0, 10000))
-        model_output_img = self.predict_start_from_noise(x_noisy, t=t, noise=model_output)
-        model_output_img = self.decode_first_stage(model_output_img)
-        model_output_img = torch.clamp((model_output_img + 1.0) / 2.0, min=0.0, max=1.0)
-        model_output_img = torch.squeeze(model_output_img)
-        model_output_img = model_output_img.cpu().numpy().transpose(1,2,0)  
-        model_output_img = (model_output_img *255).astype(np.uint8)
-        model_output_img = Image.fromarray(model_output_img)
-        model_output_img = np.array(model_output_img)
+        #filename = str(random.randint(0, 10000))
+        #model_output_img = self.predict_start_from_noise(x_noisy, t=t, noise=model_output)
+        #model_output_img = self.decode_first_stage(model_output_img)
+        #model_output_img = torch.clamp((model_output_img + 1.0) / 2.0, min=0.0, max=1.0)
+        #model_output_img = torch.squeeze(model_output_img)
+        #model_output_img = model_output_img.cpu().numpy().transpose(1,2,0)  
+        #model_output_img = (model_output_img *255).astype(np.uint8)
+        #model_output_img = Image.fromarray(model_output_img)
+        #model_output_img = np.array(model_output_img)
         #cv2.imwrite('/cluster/scratch/denfan/inpainting_stable/test_img_one/'+filename+'.jpg', model_output_img)
         ###################
         
